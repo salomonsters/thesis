@@ -29,21 +29,22 @@ def return_gdf_if_in_airspace(iter):
 
 if __name__ == '__main__':
     freeze_support()
-    pool = Pool(processes=6)  # start this many worker processes
+    pool = Pool(processes=11)  # start this many worker processes
     if not os.path.isdir(export_dir):
         raise FileNotFoundError("ERROR: Export directory {0} not found, aborting.".format(export_dir))
-    for filename in [os.listdir(source_dir)[0]]:
+    for filename in os.listdir(source_dir):
+        filename_export = os.path.join(export_dir, filename)
+        if os.path.exists(filename_export):
+            print("{time}: Export file {0} already exists; skipping".format(filename, time=datetime.datetime.now()))
+            continue
         print("{time}: Start pre-processing for {0}".format(filename, time=datetime.datetime.now()))
         df = pd.read_csv(os.path.join(source_dir, filename))
-
+        columns = list(df.columns)
         matched_df_list = pool.map(return_gdf_if_in_airspace, df.groupby('fid'))
-
+        print("{time}: Finished pre-processing for {0}, starting merge".format(filename, time=datetime.datetime.now()))
         df_matched = pd.concat(matched_df_list)
-        df_matched.to_csv(os.path.join(export_dir, filename))
-        print("{time}: Finished pre-processing for {0}, saved to directory {1}".format(filename, export_dir, time=datetime.datetime.now()))
-
-        # Only run one file for now
-        break
+        df_matched.to_csv(os.path.join(export_dir, filename), columns=columns)
+        print("{time}: Finished merging file {0}, saved to directory {1}".format(filename, export_dir, time=datetime.datetime.now()))
 
 
 
