@@ -185,33 +185,33 @@ ehrd_ctr_string = """51°50'51.97"N 004°18'50.32"E;
 51°55'53.02"N 004°13'32.74"E; 
 to point of origin."""
 
-eham_ctr_1 = create_ctr("Schiphol CTR1", "C", 0, 3000,
+eham_ctr_1 = create_ctr("Schiphol CTR 1", "C", 0, 3000,
                         centre=parse_lat_lon(eham_ctr_centre), radius_in_nm=eham_ctr_radius_in_nm,
                         extra_points=eham_ctr1_string, set_operation="union")
 eham_ctr = [eham_ctr_1,
-            create_ctr("Schiphol CTR2", "C", 1200, 3000, extra_points=eham_ctr2_string, geometry=eham_ctr_1['geometry'],
+            create_ctr("Schiphol CTR 2", "C", 1200, 3000, extra_points=eham_ctr2_string, geometry=eham_ctr_1['geometry'],
                        set_operation="difference"),
-            create_ctr("Schiphol CTR3", "C", 1200, 3000, extra_points=eham_ctr3_string, geometry=eham_ctr_1['geometry'],
+            create_ctr("Schiphol CTR 3", "C", 1200, 3000, extra_points=eham_ctr3_string, geometry=eham_ctr_1['geometry'],
                        set_operation="difference")
             ]
 eham_tma = [parse_tma(tma_s) for tma_s in eham_tma_strings]
 eham_airspace = pd.DataFrame.from_records(eham_tma + eham_ctr)
+eham_airspace['airport'] = 'EHAM'
 
 ehrd_tma = [parse_tma(tma_s) for tma_s in ehrd_tma_strings]
 ehrd_ctr = [create_ctr("Rotterdam CTR", "C", 0, 3000,
                        centre=parse_lat_lon(ehrd_ctr_centre), radius_in_nm=ehrd_ctr_radius_in_nm,
                        extra_points=ehrd_ctr_string, set_operation="union")]
 ehrd_airspace = pd.DataFrame.from_records(ehrd_tma + ehrd_ctr)
+ehrd_airspace['airport'] = 'EHRD'
 
 ehaa_airspace = geopandas.GeoDataFrame(ehrd_airspace).append(geopandas.GeoDataFrame(eham_airspace))
 ehaa_airspace.crs = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
-
     plt.figure()
     gdf_projected = prepare_gdf_for_plotting(ehaa_airspace)
-    plt.figure()
     ax = gdf_projected.plot(figsize=(10, 10), alpha=0.5, edgecolor='k')
     add_basemap(ax, zoom=9, ll=False)
     plt.title("Projected")

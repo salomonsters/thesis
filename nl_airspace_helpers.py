@@ -171,8 +171,11 @@ def add_basemap(ax, zoom, url='https://maps.wikimedia.org/osm-intl/tileZ/tileX/t
 
 def prepare_gdf_for_plotting(gdf):
     """
-    Prepare gdf for plotting by setting epsg to 3857, allowing add_basemap later
+    Prepare gdf for plotting by setting epsg to 3857, allowing add_basemap later.
+    If no crs is set on the gdf, it assumes WGS84
     :param gdf: geopandas dataframe
     :return: None
     """
+    if gdf.crs is None:
+        gdf.crs = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
     return gdf.to_crs(epsg=3857)
