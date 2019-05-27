@@ -9,7 +9,7 @@ airspace = ehaa_airspace[ehaa_airspace['airport'] == "EHRD"]
 show_only_track_in_airspace = False
 aircraft_db = pd.read_csv('data/aircraft_db/aircraft_db.csv', dtype=str, index_col=0)
 
-df = pd.read_csv('data/adsb_decoded/ADSB_DECODED_20180102.csv.gz')#, converters={'callsign': lambda s: s.replace('_', '')})
+df = pd.read_csv('data/adsb_decoded/ADSB_DECODED_20180101.csv.gz')#, converters={'callsign': lambda s: s.replace('_', '')})
 df_alt_min, df_alt_max = df['alt'].min(), df['alt'].max()
 
 for fid, track in df.groupby('fid'):
