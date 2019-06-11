@@ -177,5 +177,5 @@ def prepare_gdf_for_plotting(gdf):
     :return: None
     """
     if gdf.crs is None:
-        gdf.crs = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
-    return gdf.to_crs(epsg=3857)
+        gdf.crs = {'init': 'epsg:4326', 'no_defs': True}
+    return gdf.to_crs({'init': 'epsg:3857', 'no_defs': True})
