@@ -1,6 +1,7 @@
 import numpy as np
 import copy
 import scipy as sp
+import math
 from itertools import cycle
 from scipy.linalg import eigh
 import pandas as pd
@@ -35,15 +36,58 @@ def log(m):
 #     dist = np.linalg.norm(x)
 #     return np.exp(-dist ** 2 / (2. * (sigma * sigma)))
 
+def adjacency_matrix_cuda_wrapper(W, x, indices, sigma):
+    log("Start copying to device")
+    # W = W[:512,:512]
+    d_W = numba.cuda.device_array_like(W)
+    d_x = numba.cuda.to_device(x)
+    d_sigma = numba.cuda.to_device(sigma)
+    log("Finished copying to device, starting calculations")
+    blockdim = 16, 16
+    n = W.shape[0]
+    griddim = n//blockdim[0]+1, n//blockdim[1]+1
+    adjacency_matrix_cuda[griddim, blockdim](d_W, d_x, d_sigma)
+    # numba.cuda.synchronize()
+    # log("Finished calculations, copying back to device")
+    d_W.copy_to_host(W)
+    log("Function finished, W calculated")
+    return W
 
-@numba.jit
-def adjacency_matrix_numba(W, x, indices, sigma):
-    for k in numba.prange(indices.shape[0]):
-        i, j = indices[k]
-        x_ij = x[i, :, :] - x[j, :, :]
-        distance_square = np.sum(x_ij * x_ij, axis=1)
-        W[i, j] = np.exp(np.nansum(-distance_square/ (2. * (sigma * sigma))))
-        W[j, i] = W[i, j]
+
+@numba.cuda.jit('void(float64[:,:],float64[:,:,:],float64[:])')
+def adjacency_matrix_cuda(W, x, sigma):
+    i, j = numba.cuda.grid(2)
+
+    if i < W.shape[0] and j < W.shape[0]:
+        if i == j:
+            # Value on diagonal is always 1
+            W[i, j] = 1.
+        # We copy everything below the diagonal to above
+        elif not (i < j):
+            W[i, j] = 0.1
+            dist_squared = 0.
+            for k in range(x.shape[1]):
+                for l in range(x.shape[2]):
+                    dist_squared = dist_squared + (x[i, k, l] - x[j, k, l]) * (x[i, k, l] - x[j, k, l])
+            W[i, j] = math.exp(-dist_squared / (2. * (sigma[0] * sigma[0])))
+            W[j, i] = W[i, j]
+
+
+@numba.jit('void(float64[:,:],float64[:,:,:],float64)', parallel=True)
+def adjacency_matrix_numba(W, x, sigma):
+    for i in numba.prange(W.shape[0]):
+        for j in numba.prange(W.shape[0]):
+            if i == j:
+                # Value on diagonal is always 1
+                W[i, j] = 1.
+            # We copy everything below the diagonal to above
+            elif not (i < j):
+                dist_squared = 0.
+                for k in range(x.shape[1]):
+                    for l in range(x.shape[2]):
+                        dist_squared = dist_squared + (x[i, k, l] - x[j, k, l]) * (x[i, k, l] - x[j, k, l])
+                W[i, j] = math.exp(-dist_squared / (2. * (sigma * sigma)))
+                W[j, i] = W[i, j]
 
 
 # def adjacency_matrix_numba_wrapper(x_left, x_right, idx, one_matrix_rows, sigma):
@@ -55,7 +99,60 @@ def adjacency_matrix_numba(W, x, indices, sigma):
 #     return W
 
 
-@numba.jit
+@numba.vectorize('float64(float64)')
+def lat2y(lat):
+    return math.log(math.tan(math.radians(lat) / 2 + math.pi/4)) * 6378137.0
+
+@numba.vectorize('float64(float64)')
+def lon2x(lon):
+    return math.radians(lon) * 6378137.0
+
+# Ary_in: first dimension is fid, second is rows, third is data
+# ary out: first dimension fid, second rows, third data (but then scaled and averaged)
+@numba.jit#(parallel=True)
+def scale_and_average_df_numba(ary_in, ary_out):
+    n_data_points = ary_out.shape[1]
+    for i in range(ary_out.shape[0]):
+        na_indices = np.where(np.isnan(ary_in[i]))[0]
+        if na_indices.shape[0] == 0:
+            first_na_index = ary_in[i].shape[0]
+        else:
+            first_na_index = na_indices[0]
+        index_new = np.round(np.linspace(0, first_na_index - 1, n_data_points)).astype('int')
+        ary_out[i, :, :] = ary_in[i, index_new, :]
+
+# @numba.jit
+def scale_and_average_df_numba_wrapper(df, sample_to_n_rows, fields=['lat', 'lon'], dtype='float32'):
+    for field_counter, field in enumerate(fields):
+        if field == 'lat':
+            df['x'] = lon2x(df['lon'].values)
+            fields[field_counter] = 'x'
+        if field == 'lon':
+            df['y'] = lat2y(df['lat'].values)
+            fields[field_counter] = 'y'
+
+    df_grouped = df.set_index('fid')[fields].groupby('fid')
+    index_map = np.array(df_grouped.count().index, dtype='str')
+    gdf_as_numpy_arrays = df_grouped.apply(pd.DataFrame.to_numpy)
+    rows_per_numpy_array = [_.shape[0] for _ in gdf_as_numpy_arrays]
+    converted_df = np.array([gdf_as_numpy_arrays[i] for i, n_rows in enumerate(rows_per_numpy_array) if n_rows >= sample_to_n_rows])
+    number_of_discared_dfs = gdf_as_numpy_arrays.shape[0] - converted_df.shape[0]
+    max_n_datapoints = np.max(rows_per_numpy_array)
+    n_fields = len(fields)
+    ary_in_shape = converted_df.shape[0], max_n_datapoints, n_fields
+    ary_in = np.zeros(ary_in_shape, dtype=dtype)
+    ary_in[:,:,:] = np.nan
+
+    for i in range(converted_df.shape[0]):
+        ary_to_fil = converted_df[i]
+        ary_in[i, :ary_to_fil.shape[0], :] = ary_to_fil
+
+    ary_out_shape = converted_df.shape[0], sample_to_n_rows, n_fields
+    ary_out = np.zeros(ary_out_shape, dtype=dtype)
+    scale_and_average_df_numba(ary_in, ary_out)
+
+    return ary_out, index_map, number_of_discared_dfs
+
 def scale_and_average_df(df_to_scale, n_data_points, fields=('x', 'y', 'alt'), dtype=None):
     if len(df_to_scale) < n_data_points:
         # We cannot scale and average in this case, so return None
@@ -171,7 +268,7 @@ if __name__ == "__main__":
     zoom = 15
 
     # fields = ('x', 'y', 'alt')
-    fields = ('x', 'y')
+    fields = ['lat', 'lon']
     airspace = ehaa_airspace.query(airspace_query)
     n_data_points = 100
     one_matrix_shape = n_data_points, len(fields)
@@ -179,7 +276,7 @@ if __name__ == "__main__":
     minalt = 200  # ft
     maxalt = 10000
 
-    sigma = 4000
+    sigma = 4000.
     omega_min = 1
 
     # stop = lambda X, Y: np.max(X) / np.max(Y) < omega_min
@@ -187,14 +284,13 @@ if __name__ == "__main__":
     log("Start reading csv")
 
     # #### SINGLE FILENAME
-    df = pd.read_csv(
-        'data/adsb_decoded_in_eham/ADSB_DECODED_20180101.csv.gz')  # , converters={'callsign': lambda s: s.replace('_', '')})
-    log("Completed reading CSV")
-    # #### ENTIRE DIRECTORY
-    # path = './data/adsb_decoded/'
-    # max_number_of_files = 5
-    # df = pd.concat(map(pd.read_csv, glob.glob(os.path.join(path, "*.csv.gz"))[:max_number_of_files]))
+    df = pd.read_csv('data/adsb_decoded_in_eham/ADSB_DECODED_20180101.csv.gz')  # , converters={'callsign': lambda s: s.replace('_', '')})
 
+    # #### ENTIRE DIRECTORY
+    # path = './data/adsb_decoded_in_eham/'
+    # max_number_of_files = 15
+    # df = pd.concat(map(pd.read_csv, glob.glob(os.path.join(path, "*.csv.gz"))[:max_number_of_files]))
+    log("Completed reading CSV")
 
     orig_df = copy.deepcopy(df)
 
@@ -217,9 +313,12 @@ if __name__ == "__main__":
         # num_groups = len(df_g)
         log("Completed groupby")
         # fid_list = np.empty(num_groups, dtype='U10')
-
+        x_numba, fid_list_numba, number_of_discared_dfs = scale_and_average_df_numba_wrapper(df, n_data_points, fields,
+                                                                                       dtype='float64')
         processed_dfs = parallelize_dict({fid_name: fid_df for fid_name, fid_df in df_g}, scale_and_average_df_multi, n_data_points=n_data_points, fields=fields)
-        log("Thew away {0:0.2f}% of data".format(len(data_points_per_group[data_points_per_group < n_data_points])/len(data_points_per_group)*100))
+        fields = ['x', 'y']
+
+        log("Thew away {0} fid's".format(number_of_discared_dfs))
         fid_list = np.array(processed_dfs.keys())
 
         # processed_df_i = 0
@@ -238,98 +337,107 @@ if __name__ == "__main__":
         # adjacency_matrices_to_calculate = []
         x_l = []
         n = len(processed_dfs)
-        # idx = np.empty(n, dtype=tuple)
         one_matrix_rows, one_matrix_cols = one_matrix_shape
-        lower_indices = np.tril_indices(n, -1)
-        lower_indices_list = np.array(list(zip(*lower_indices)))
         processed_dfs_list = list(processed_dfs.values())
         x_shape = tuple((len(processed_dfs_list), *one_matrix_shape))
         x = np.zeros(x_shape, dtype='float64')
         for i in range(x.shape[0]):
             x[i, :, :] = processed_dfs_list[i]
 
-        lower_indices_length = lower_indices_list.shape[0]
         log("Queued adjacency matrix calculation")
+        #
+        # W = np.zeros((n, n), dtype='float64')
+        # # Function below modifies W in place
+        # adjacency_matrix_numba(W, x, sigma)
+        # log("Calculated adjacency matrix")
+        # result = []
+        #
+        # spectralCluster(W, stop, result)
+        # fid_to_cluster_map = {}
+        # for cluster_number, fidlist_indices in enumerate(result):
+        #     for fid in fid_list[fidlist_indices.ravel()]:
+        #         fid_to_cluster_map[fid] = cluster_number
+        #
+        # gdf['cluster'] = gdf['fid'].map(fid_to_cluster_map)
+        # log("Determined fid_to_cluster_map")
+        # log("{0} clusters found (sigma={1}, omega_min={2})".format(1+max(fid_to_cluster_map.values()), 1, omega_min))
+        #
+        # cluster_to_fid_map = inverse_map(fid_to_cluster_map)
+        # df_group_dict = {k: v for k, v in df_g}
+        # # Sort from largest to smallest cluster
+        # for key, fids in sorted(cluster_to_fid_map.items(), key=lambda a: len(a[1]))[::-1]:
+        #     tracks_concat_shape = len(fids), processed_dfs[fids[0]].shape[0], processed_dfs[fids[0]].shape[1]
+        #     tracks_concat_dtype = processed_dfs[fids[0]].dtype
+        #     tracks_concat = np.empty(tracks_concat_shape, dtype=tracks_concat_dtype)
+        #     for fid_i in range(tracks_concat_shape[0]):
+        #         tracks_concat[fid_i, :, :] = processed_dfs[fids[fid_i]]
+        #     tracks_concat_flat = tracks_concat.reshape((-1, tracks_concat_shape[2]))
+        #     tracks_mean = tracks_concat.mean(axis=0)
+        #
+        #     fig = plt.figure()
+        #     airspace_projected = prepare_gdf_for_plotting(airspace)
+        #     ax = airspace_projected.plot(figsize=(10, 10), alpha=0.5, edgecolor='k')
+        #     # add_basemap(ax, zoom=zoom, ll=False)
+        #     ax.set_axis_off()
+        #     colorcycle = cycle(['C0', 'C1'])
+        #     sizecycle = cycle([1, 0.1])
+        #     for tracks in [tracks_mean, tracks_concat_flat]:
+        #         #gdf_for_plotting = geopandas.GeoDataFrame(df, geometry=geopandas.points_from_xy(df.x, df.y))
+        #         #gdf_track_converted = gdf_for_plotting  # prepare_gdf_for_plotting(gdf)
+        #         color = next(colorcycle)
+        #         size = next(sizecycle)
+        #         #gdf_track_converted.plot(ax=ax, color=color, markersize=size, linewidth=size)
+        #         gs = geopandas.GeoSeries(geopandas.points_from_xy(tracks[:, 0], tracks[:, 1]))
+        #         gs.crs = {'init': 'epsg:3857', 'no_defs': True}
+        #         gs.plot(ax=ax, color=color, markersize=size, linewidth=size)
+        #     plt.show()
+        #     if input("Continue? [y/n]").capitalize() == "N":
+        #         break
+        # # if input("Save vars to pickle? [y/n]").capitalize() == "Y":
+        # #     out_fn = "clustering_vars.pkl"
+        # #     log("Saving to {0}".format(out_fn))
+        # #     with open(out_fn, 'wb') as f:
+        # #         import pickle
+        # #         pickle.dump(df, f)
+        # #         pickle.dump(gdf, f)
+        # #         pickle.dump(processed_dfs, f)
+        # #         pickle.dump(fid_list, f)
+        # #         pickle.dump(x, f)
+        # #         pickle.dump(lower_indices_list, f)
+        # #         pickle.dump(W, f)
+        # #         pickle.dump(fid_to_cluster_map, f)
+        # #         pickle.dump(cluster_to_fid_map, f)
+        #
 
-        W = np.ones((n, n), dtype='float64')
-        # Function below modifies W in place
-        adjacency_matrix_numba(W, x, lower_indices_list, sigma)
-        log("Calculated adjacency matrix")
-        result = []
-
-        spectralCluster(W, stop, result)
-        fid_to_cluster_map = {}
-        for cluster_number, fidlist_indices in enumerate(result):
-            for fid in fid_list[fidlist_indices.ravel()]:
-                fid_to_cluster_map[fid] = cluster_number
-
-        gdf['cluster'] = gdf['fid'].map(fid_to_cluster_map)
-        log("Determined fid_to_cluster_map")
-        log("{0} clusters found (sigma={1}, omega_min={2})".format(1+max(fid_to_cluster_map.values()), 1, omega_min))
-
-        cluster_to_fid_map = inverse_map(fid_to_cluster_map)
-        df_group_dict = {k: v for k, v in df_g}
-        # Sort from largest to smallest cluster
-        for key, fids in sorted(cluster_to_fid_map.items(), key=lambda a: len(a[1]))[::-1]:
-            tracks_concat_shape = len(fids), processed_dfs[fids[0]].shape[0], processed_dfs[fids[0]].shape[1]
-            tracks_concat_dtype = processed_dfs[fids[0]].dtype
-            tracks_concat = np.empty(tracks_concat_shape, dtype=tracks_concat_dtype)
-            for fid_i in range(tracks_concat_shape[0]):
-                tracks_concat[fid_i, :, :] = processed_dfs[fids[fid_i]]
-            tracks_concat_flat = tracks_concat.reshape((-1, tracks_concat_shape[2]))
-            tracks_mean = tracks_concat.mean(axis=0)
-
-            fig = plt.figure()
-            airspace_projected = prepare_gdf_for_plotting(airspace)
-            ax = airspace_projected.plot(figsize=(10, 10), alpha=0.5, edgecolor='k')
-            # add_basemap(ax, zoom=zoom, ll=False)
-            ax.set_axis_off()
-            colorcycle = cycle(['C0', 'C1'])
-            sizecycle = cycle([1, 0.1])
-            for tracks in [tracks_mean, tracks_concat_flat]:
-                #gdf_for_plotting = geopandas.GeoDataFrame(df, geometry=geopandas.points_from_xy(df.x, df.y))
-                #gdf_track_converted = gdf_for_plotting  # prepare_gdf_for_plotting(gdf)
-                color = next(colorcycle)
-                size = next(sizecycle)
-                #gdf_track_converted.plot(ax=ax, color=color, markersize=size, linewidth=size)
-                gs = geopandas.GeoSeries(geopandas.points_from_xy(tracks[:, 0], tracks[:, 1]))
-                gs.crs = {'init': 'epsg:3857', 'no_defs': True}
-                gs.plot(ax=ax, color=color, markersize=size, linewidth=size)
-            plt.show()
-            if input("Continue? [y/n]").capitalize() == "N":
-                break
-
-
-
-    # ## VISUALISATION
+    # # ## VISUALISATION
+    # #
+    # # df = orig_df
+    # # df['cluster'] = df['fid'].map(fid_to_cluster_map)
+    # # if minalt is not None:
+    # #     df = df[df['alt'] > minalt]
+    # # if maxalt is not None:
+    # #     df = df[df['alt'] < maxalt]
+    # #
+    # # df_alt_min, df_alt_max = df['alt'].min(), df['alt'].max()
+    # # fig = plt.figure()
+    # # airspace_projected = prepare_gdf_for_plotting(airspace)
+    # # ax = airspace_projected.plot(figsize=(10, 10), alpha=0.5, edgecolor='k')
+    # # # add_basemap(ax, zoom=zoom, ll=False)
+    # # ax.set_axis_off()
+    # #
+    # # gdf = geopandas.GeoDataFrame(df, geometry=geopandas.points_from_xy(df.lon, df.lat))
+    # # gdf_track_converted = prepare_gdf_for_plotting(gdf)
+    # # # gdf_track_converted.plot(ax=ax, column='alt', cmap='plasma', legend=True, markersize=0.1, linewidth=0.1, vmin=df_alt_min, vmax=df_alt_max)
+    # # gdf_track_converted.dissolve('cluster').plot(ax=ax, label='cluster', markersize=0.1, linewidth=0.1, column='cluster')
+    # # # plt.show()
+    # # handles, labels = ax.get_legend_handles_labels()  # return clusters and labels
+    # # interactive_legend = plugins.InteractiveLegendPlugin(zip(handles,
+    # #                                                          ax.collections),
+    # #                                                      labels,
+    # #                                                      # alpha_unsel=0.5,
+    # #                                                      # alpha_over=1.5,
+    # #                                                      start_visible=True)
+    # # plugins.connect(fig, interactive_legend)
+    # # mpld3.show()
+    # #
     #
-    # df = orig_df
-    # df['cluster'] = df['fid'].map(fid_to_cluster_map)
-    # if minalt is not None:
-    #     df = df[df['alt'] > minalt]
-    # if maxalt is not None:
-    #     df = df[df['alt'] < maxalt]
-    #
-    # df_alt_min, df_alt_max = df['alt'].min(), df['alt'].max()
-    # fig = plt.figure()
-    # airspace_projected = prepare_gdf_for_plotting(airspace)
-    # ax = airspace_projected.plot(figsize=(10, 10), alpha=0.5, edgecolor='k')
-    # # add_basemap(ax, zoom=zoom, ll=False)
-    # ax.set_axis_off()
-    #
-    # gdf = geopandas.GeoDataFrame(df, geometry=geopandas.points_from_xy(df.lon, df.lat))
-    # gdf_track_converted = prepare_gdf_for_plotting(gdf)
-    # # gdf_track_converted.plot(ax=ax, column='alt', cmap='plasma', legend=True, markersize=0.1, linewidth=0.1, vmin=df_alt_min, vmax=df_alt_max)
-    # gdf_track_converted.dissolve('cluster').plot(ax=ax, label='cluster', markersize=0.1, linewidth=0.1, column='cluster')
-    # # plt.show()
-    # handles, labels = ax.get_legend_handles_labels()  # return clusters and labels
-    # interactive_legend = plugins.InteractiveLegendPlugin(zip(handles,
-    #                                                          ax.collections),
-    #                                                      labels,
-    #                                                      # alpha_unsel=0.5,
-    #                                                      # alpha_over=1.5,
-    #                                                      start_visible=True)
-    # plugins.connect(fig, interactive_legend)
-    # mpld3.show()
-    #
-
