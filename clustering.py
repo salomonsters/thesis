@@ -19,20 +19,18 @@ def log(m):
 
 
 def adjacency_matrix_cuda_wrapper(W, x, sigma):
-    log("Start copying to device")
-    # W = W[:512,:512]
+    sigma = np.array(sigma, dtype='float64')
+    # log("Start copying to device")
     d_W = numba.cuda.device_array_like(W)
     d_x = numba.cuda.to_device(x)
     d_sigma = numba.cuda.to_device(sigma)
-    log("Finished copying to device, starting calculations")
+    # log("Finished copying to device, starting calculations")
     blockdim = 16, 16
     n = W.shape[0]
     griddim = n//blockdim[0]+1, n//blockdim[1]+1
     adjacency_matrix_cuda[griddim, blockdim](d_W, d_x, d_sigma)
-    # numba.cuda.synchronize()
-    # log("Finished calculations, copying back to device")
     d_W.copy_to_host(W)
-    log("Function finished, W calculated")
+    # log("Function finished, W calculated")
 
 
 @numba.cuda.jit('void(float64[:,:],float64[:,:,:],float64[:])')
