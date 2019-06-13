@@ -8,6 +8,7 @@ from clustering import scale_and_average_df_numba, scale_and_average_df_numba_wr
 from clustering import lat2y, lon2x
 from clustering import adjacency_matrix_numba, adjacency_matrix_cuda_wrapper
 
+
 @pytest.fixture
 def df_to_scale():
     n = 151
@@ -41,6 +42,7 @@ def ary_scaled_expected():
 @pytest.fixture
 def sigma():
     return 100000
+
 
 @pytest.fixture
 def adjacency_matrix_expected(sigma):
