@@ -45,7 +45,6 @@ def adjacency_matrix_cuda(W, x, sigma):
             W[i, j] = 1.
         # We copy everything below the diagonal to above
         elif not (i < j):
-            W[i, j] = 0.1
             dist_squared = 0.
             for k in range(x.shape[1]):
                 for l in range(x.shape[2]):
@@ -94,8 +93,9 @@ def scale_and_average_df_numba(ary_in, ary_out):
         ary_out[i, :, :] = ary_in[i, index_new, :]
 
 
-def scale_and_average_df_numba_wrapper(df, sample_to_n_rows, fields=['lat', 'lon'], dtype='float64'):
+def scale_and_average_df_numba_wrapper(df, sample_to_n_rows, fields=('lat', 'lon'), dtype='float64'):
     for field_counter, field in enumerate(fields):
+        fields = list(fields)
         if field == 'lat':
             df['x'] = lon2x(df['lon'].values)
             fields[field_counter] = 'x'
@@ -104,11 +104,12 @@ def scale_and_average_df_numba_wrapper(df, sample_to_n_rows, fields=['lat', 'lon
             fields[field_counter] = 'y'
 
     df_grouped = df.set_index('fid')[fields].groupby('fid')
-    index_map = np.array(df_grouped.count().index, dtype='str')
+    index_map_naive = np.array(df_grouped.count().index, dtype='str')
     gdf_as_numpy_arrays = df_grouped.apply(pd.DataFrame.to_numpy)
     rows_per_numpy_array = [_.shape[0] for _ in gdf_as_numpy_arrays]
     converted_df = np.array([gdf_as_numpy_arrays[i] for i, n_rows in enumerate(rows_per_numpy_array) if n_rows >= sample_to_n_rows])
-    discarded_fids = np.array([index_map[i] for i, n_rows in enumerate(rows_per_numpy_array) if n_rows < sample_to_n_rows])
+    discarded_fids = np.array([index_map_naive[i] for i, n_rows in enumerate(rows_per_numpy_array) if n_rows < sample_to_n_rows])
+    index_map = np.array([index_map_naive[i] for i, n_rows in enumerate(rows_per_numpy_array) if n_rows >= sample_to_n_rows])
     max_n_datapoints = np.max(rows_per_numpy_array)
     n_fields = len(fields)
     ary_in_shape = converted_df.shape[0], max_n_datapoints, n_fields
