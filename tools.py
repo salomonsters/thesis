@@ -23,6 +23,8 @@ def cache_pickle(func=None, *, cache_path="data/cache", verbose=False, log_prepe
     >>>@cache_pickle(verbose=True)
     def foo(a):
         pass"""
+
+    # Lines below allow decorator calls with and without arguments
     if func is None:
         return functools.partial(cache_pickle, cache_path=cache_path, verbose=verbose, log_prepend=log_prepend)
 
