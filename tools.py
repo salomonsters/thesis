@@ -5,6 +5,9 @@ import inspect
 import os
 import pickle
 
+import numpy as np
+import pandas as pd
+
 
 def create_logger(verbose, prepend=""):
     def log(m):
@@ -55,6 +58,19 @@ def cache_pickle(func=None, *, cache_path="data/cache", verbose=False, log_prepe
     wrapper_cache.cache_files = [f[:-4] for f in os.listdir(cache_path) if os.path.isfile(os.path.join(cache_path, f))
                                  and f.endswith('.pkl')]
     return wrapper_cache
+
+
+def subsample_dataframe(df, seconds, group_col='fid', time_col='ts'):
+    resampled = []
+    for track_name, track_group in df.groupby(group_col):
+        v = np.arange(track_group[time_col].min() - seconds, track_group[time_col].max() + seconds, seconds)
+        df_binned = track_group.groupby(pd.cut(track_group[time_col], v))
+        # Use only the first element
+        first_rows = df_binned.head(1)
+        resampled.append(first_rows)
+
+    df_resampled = pd.concat(resampled)
+    return df_resampled
 
 
 if __name__ == "__main__":

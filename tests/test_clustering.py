@@ -108,3 +108,57 @@ def test_adjacency_matrix(ary_scaled_expected, adjacency_matrix_expected, sigma)
     adjacency_matrix_numba(W_numba, ary_scaled_expected, sigma)
     assert np.allclose(W_numba, adjacency_matrix_expected)
     assert np.allclose(W_cuda, adjacency_matrix_expected)
+
+
+@pytest.fixture
+def sample_tracks_2d():
+    N = 20
+    start_and_end = np.array([[[0, 80], [50, 0]],
+     [[0, 79], [49, 0]],
+     [[0, 78], [48, 0]],
+     [[50, 100], [50, 0]],
+     [[50, 0], [50, 100]],
+     [[50, 0], [90, 100]],
+     [[50, 0], [100,100]],
+     [[250, 200], [350,300]]
+                              ])
+    X_shape = *start_and_end.shape[:2], N
+    X = np.zeros(X_shape, dtype='float64')
+    for i in range(X_shape[0]):
+        x0, y0 = start_and_end[i, 0, :]
+        x1, y1 = start_and_end[i, 1, :]
+        X[i, 0, :] = np.linspace(x0, x1, N)
+        X[i, 1, :] = np.linspace(y0, y1, N)
+    return X
+
+
+def cluster_indices(X, sigma):
+    n = X.shape[0]
+    W = np.zeros((n, n), dtype='float64')
+    adjacency_matrix_numba(W, X, sigma)
+    D = np.zeros_like(W)
+    for i in range(W.shape[0]):
+        D[i,i] = np.sum(W[i,:])
+    L = D - W
+    l, U = np.linalg.eigh(L)
+    i = np.argsort(np.abs(l))[1]
+    v = U[:, i]
+    i_l = np.where(v >= 0)[0]
+    i_r = np.where(v < 0)[0]
+    assert len(i_l) + len(i_r) == len(v)
+    return (i_r, i_l)
+
+
+def test_spectralcluster(sample_tracks_2d):
+    X = sample_tracks_2d
+    sigma = 50.
+    i_r, i_l = cluster_indices(X, sigma)
+    assert np.array_equal(i_l, [7]) or np.array_equal(i_r, [7])
+    X1 = X[[0,1,2,3,4,5,6], :, :]
+    i_r_1, i_l_1 = cluster_indices(X1, sigma)
+    assert np.array_equal(i_r_1, [0,1,2,3])or np.array_equal(i_l_1, [0,1,2,3])
+    X20 = X[[0, 1, 2, 3], :, :]
+    X21 = X[[4,5,6], :, :]
+    i_r_20, i_l_20 = cluster_indices(X20, sigma)
+    i_r_21, i_l_21 = cluster_indices(X21, sigma)
+    pass

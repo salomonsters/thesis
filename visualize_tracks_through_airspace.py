@@ -1,11 +1,12 @@
 import numpy as np
 import pandas as pd
 import geopandas
-from nl_airspace_def import ehaa_airspace
+from nl_airspace_def import ehaa_airspace, hoofddorp_airspace
 from nl_airspace_helpers import prepare_gdf_for_plotting, add_basemap
 import matplotlib.pyplot as plt
 
 airspace = ehaa_airspace[ehaa_airspace['airport'] == "EHRD"]
+airspace = hoofddorp_airspace
 show_only_track_in_airspace = False
 aircraft_db = pd.read_csv('data/aircraft_db/aircraft_db.csv', dtype=str, index_col=0)
 

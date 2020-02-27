@@ -1,7 +1,7 @@
 import geopandas
 import pandas as pd
 
-from nl_airspace_helpers import create_ctr, parse_tma, parse_lat_lon, add_basemap, prepare_gdf_for_plotting
+from nl_airspace_helpers import create_ctr, parse_tma, parse_lat_lon, prepare_gdf_for_plotting  #, add_basemap
 
 ### AMSTERDAM
 # TMA strings: Taken directly from the AIP
@@ -175,6 +175,18 @@ FL 055
 Class of airspace: E"""
 ]
 
+hoofddorp = """Hoofddorp BETA4Y
+
+52°17'21"N 004°36'45"E;
+52°22'16"N 004°41'27"E;
+52°17'29"N 004°44'11"E;
+to point of origin
+
+FL 055
+500 ft AMSL
+
+Class of airspace: Z"""
+
 ehrd_ctr_centre = """51°57'25.00"N 004°26'14.00"E"""
 ehrd_ctr_radius_in_nm = 8
 
@@ -205,14 +217,19 @@ ehrd_ctr = [create_ctr("Rotterdam CTR", "C", 0, 3000,
 ehrd_airspace = pd.DataFrame.from_records(ehrd_tma + ehrd_ctr)
 ehrd_airspace['airport'] = 'EHRD'
 
+hoofddorp_airspace = geopandas.GeoDataFrame(pd.DataFrame.from_records([parse_tma(hoofddorp)]))
+
+hoofddorp_airspace['airport'] = 'EHXX'
+hoofddorp_airspace.crs = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
+
 ehaa_airspace = geopandas.GeoDataFrame(ehrd_airspace).append(geopandas.GeoDataFrame(eham_airspace))
 ehaa_airspace.crs = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
     plt.figure()
-    gdf_projected = prepare_gdf_for_plotting(ehaa_airspace)
+    gdf_projected = prepare_gdf_for_plotting(hoofddorp_airspace)
     ax = gdf_projected.plot(figsize=(10, 10), alpha=0.5, edgecolor='k')
-    add_basemap(ax, zoom=9, ll=False)
+    # add_basemap(ax, zoom=14, ll=False)
     plt.title("Projected")
     plt.show()
