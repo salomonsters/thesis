@@ -1,21 +1,19 @@
-import numpy as np
 import copy
-import math
 from itertools import cycle
-from scipy.linalg import eigh
-import pandas as pd
+
 import geopandas
+import math
+import matplotlib.pyplot as plt
+import numba
+import numpy as np
+import pandas as pd
+from numba import cuda
+from scipy.linalg import eigh
+import contextily as ctx
+
 from nl_airspace_def import ehaa_airspace
 from nl_airspace_helpers import prepare_gdf_for_plotting, add_basemap
-import matplotlib.pyplot as plt
-import datetime
-import numba
-from numba import cuda
-import glob, os
-
-
-def log(m):
-    print("{time}: {0}".format(m, time=datetime.datetime.now()))
+from tools import create_logger
 
 
 def adjacency_matrix_cuda_wrapper(W, x, sigma):
@@ -57,7 +55,7 @@ def adjacency_matrix_numba(W, x, sigma):
         for j in numba.prange(W.shape[0]):
             if i == j:
                 # Value on diagonal is always 1
-                W[i, j] = 1.
+                W[i, j] = 0.
             # We copy everything below the diagonal to above
             elif not (i < j):
                 dist_squared = 0.
@@ -72,6 +70,7 @@ def adjacency_matrix_numba(W, x, sigma):
 def lat2y(lat):
     return math.log(math.tan(math.radians(lat) / 2 + math.pi/4)) * 6378137.0
 
+
 @numba.vectorize('float64(float64)')
 def lon2x(lon):
     return math.radians(lon) * 6378137.0
@@ -81,7 +80,7 @@ def lon2x(lon):
 @numba.jit(parallel=True)
 def scale_and_average_df_numba(ary_in, ary_out):
     n_data_points = ary_out.shape[1]
-    for i in range(ary_out.shape[0]):
+    for i in numba.prange(ary_out.shape[0]):
         na_indices = np.where(np.isnan(ary_in[i]))[0]
         if na_indices.shape[0] == 0:
             first_na_index = ary_in[i].shape[0]
@@ -100,6 +99,9 @@ def scale_and_average_df_numba_wrapper(df, sample_to_n_rows, fields=('lat', 'lon
         if field == 'lon':
             df['y'] = lat2y(df['lat'].values)
             fields[field_counter] = 'y'
+        if field == 'alt':
+            df['alt_scaled'] = 3*1852*0.3048*df['alt']/2
+            fields[field_counter] = 'alt_scaled'
 
     df_grouped = df.set_index('fid')[fields].groupby('fid')
     index_map_naive = np.array(df_grouped.count().index, dtype='str')
@@ -124,47 +126,81 @@ def scale_and_average_df_numba_wrapper(df, sample_to_n_rows, fields=('lat', 'lon
 
     return ary_out, index_map, discarded_fids
 
+
 def adjacency_matrix(W, x, sigma, use_cuda=False):
     if use_cuda:
         adjacency_matrix_cuda_wrapper(W, x, sigma)
     else:
         adjacency_matrix_numba(W, x, sigma)
 
+
 def fiedler_vector(L):
     l, U = eigh(L)
     f = U[:, 1]
     return f
 
+
 @numba.njit
-def spectralCluster(W, stop_function, result_indices, original_indices=None):
-    if original_indices is None:
-        original_indices = np.array(range(W.shape[0]))
+def select_rows_and_columns(matrix, rows, columns):
+    out = np.zeros((len(rows), len(columns)), dtype=matrix.dtype)
+    for i in numba.prange(len(rows)):
+        for j in numba.prange(len(columns)):
+            out[i, j] = matrix[rows[i], columns[j]]
+    return out
+
+
+@numba.jit(nopython=True)
+def array_equal(a, b):
+    if a.shape != b.shape:
+        return False
+    for ai, bi in zip(a.flat, b.flat):
+        if ai != bi:
+            return False
+    return True
+
+# @numba.njit(parallel=False)
+def spectralCluster(W, omega_min, result_indices, original_indices, min_cluster_size):
+
+
+    # stop_function = lambda X, Y: np.var(X)/np.var(Y) < omega_min
+    # stop_function = lambda X, Y: np.max(X) / np.max(Y) < 4*omega_min
+    stop_function = lambda X, Y: np.var(X) < omega_min
+    # stop_function = lambda X, Y: np.std(X) < omega_min
+
     D = np.zeros_like(W)
     for i in range(W.shape[0]):
         D[i,i] = np.sum(W[i,:])
     L = D - W
-    v = fiedler_vector(L)
+    # Fiedler vector:
+    # v = fiedler_vector(L)
+    l, U = np.linalg.eigh(L)
+
+    v = U[:, 1]
+
     # Indices of V with positive elements
-    i_l = np.argwhere(v >= 0).ravel()
-    i_r = np.argwhere(v < 0).ravel()
-    W_il_il = W[np.ix_(i_l, i_l)]
-    W_ir_ir = W[np.ix_(i_r, i_r)]
+    i_l = np.where(v >= 0)[0]
+    i_r = np.where(v < 0)[0]
+    W_il_il = select_rows_and_columns(W, i_l, i_l)
+    W_ir_ir = select_rows_and_columns(W, i_r, i_r)
 
     # Stop either when the stop function is reached, or when we are not partitioning anymore
     if len(i_l) == 0 or len(i_r) == 0:
         if len(i_l) == 0:
-            result_indices.append(original_indices[i_r])
+            result_indices[original_indices[i_r]] = -1
+            # result_indices[original_indices[i_r]] = np.max(result_indices) + 1
         if len(i_r) == 0:
-            result_indices.append(original_indices[i_l])
+            result_indices[original_indices[i_l]] = -1
+            # result_indices[original_indices[i_l]] = np.max(result_indices) + 1
     else:
-        if stop_function(W_il_il, W) or np.array_equal(original_indices[i_l], original_indices) or len(i_l) == 1:
-            result_indices.append(original_indices[i_l])
+        if stop_function(W_il_il, W) or array_equal(original_indices[i_l], original_indices) or len(i_l) < min_cluster_size:
+            result_indices[original_indices[i_l]] = np.max(result_indices) + 1
         else:
-            spectralCluster(W_il_il, stop_function, result_indices, original_indices[i_l])
-        if stop_function(W_ir_ir, W) or np.array_equal(original_indices[i_r], original_indices) or len(i_r) == 1:
-            result_indices.append(original_indices[i_r])
+            spectralCluster(W_il_il, omega_min, result_indices, original_indices[i_l], min_cluster_size)
+        if stop_function(W_ir_ir, W) or array_equal(original_indices[i_r], original_indices) or len(i_r) < min_cluster_size:
+            result_indices[original_indices[i_r]] = np.max(result_indices) + 1
         else:
-            spectralCluster(W_ir_ir, stop_function, result_indices, original_indices[i_r])
+            spectralCluster(W_ir_ir, omega_min, result_indices, original_indices[i_r], min_cluster_size)
+
 
 def inverse_map(map):
     inv_map = {}
@@ -174,33 +210,57 @@ def inverse_map(map):
     return inv_map
 
 
+def plot_means(tracks, unclustered, airspace):
+    fig = plt.figure()
+    airspace_projected = prepare_gdf_for_plotting(airspace)
+    ax = airspace_projected.plot(figsize=(10, 10), alpha=0.5, edgecolor='k')
+
+    ax.set_axis_off()
+    gs = geopandas.GeoSeries(geopandas.points_from_xy(tracks[:, 0], tracks[:, 1]))
+    gs.crs = {'init': 'epsg:3857', 'no_defs': True}
+    gs.plot(ax=ax, markersize=1, linewidth=1)
+    # gs_unclustered = geopandas.GeoSeries(geopandas.points_from_xy(unclustered[:, 0], unclustered[:, 1]))
+    # gs_unclustered.crs = {'init': 'epsg:3857', 'no_defs': True}
+    # gs_unclustered.plot(ax=ax, markersize=0.1, linewidth=0.1)
+    plt.show()
+
+
 if __name__ == "__main__":
+    verbose = True
     airspace_query = "airport=='EHAM'"
-    zoom = 15
+    zoom = 12
     minalt = 200  # ft
     maxalt = 10000
-    sigma = 4000.
-    omega_min = 1
-    n_data_points = 100
-    fields = ['lat', 'lon']
-    use_cuda = False
-
+    sigma = 5000000.
+    omega_min = 0.002
+    min_cluster_size = 10
+    n_data_points = 200
+    fields = ['lat', 'lon', 'alt']
+    use_cuda = True
+    plot_individual_clusters = True
+# todo write verification cases for spectralcluster to see if partitioning is handled properly
+# todo maybe check some cases where we visually see overlap?
     one_matrix_shape = n_data_points, len(fields)
     airspace = ehaa_airspace.query(airspace_query)
     # stop = lambda X, Y: np.max(X) / np.max(Y) < omega_min
 
-    stop = lambda X, Y: np.var(X)/np.var(Y) < omega_min
+    machine_precision = np.finfo(np.float64).eps
+
+
+    log = create_logger(verbose, "Clustering")
 
 
     log("Start reading csv")
+   #fids = ['01cf3c72', '03adb898', '056b3610', '05df1fbc', '08f137f8', '0b434230', '0efd9cb8', '14bcd650', '1d59b4fe', '21235a40', '22b871c4', '241eedfe', '250a569a', '26f4585c', '2c1516b4', '2c587800', '332580a6', '33946408', '3b997dfa', '3c676710', '42571de6', '45ec369e', '4b478e5e', '4e45152c', '4f2c2340', '505ba72c', '52b82b12', '53f0df2e', '56849a00', '56e809f0', '5c019d98', '608934e8', '6178a582', '623ac482', '6511a658', '65267330', '669a0056', '6d4d91f6', '6f17fc60', '7155f360', '71720abe', '74b08d5e', '76e15874', '7ba88512', '7dab8698', '7ec98606', '816bd666', '82422cc0', '8826b82c', '89066a80', '8c1f1db6', '8d3988e4', '8e7d7bc0', '90899a8e', '950db6d0', '9afb2cda', '9b32d590', '9d9dcc36', '9df2dcd0', 'a189653a', 'a26144dc', 'a2bf10b2', 'a2e25932', 'a39c57ec', 'a89c31ae', 'a97caffe', 'a9fb519c', 'aa574312', 'b18dc9d0', 'b255eda2', 'b48ff450', 'b580d01e', 'b879654c', 'bf6c4c20', 'c054a1b4', 'c1b42aac', 'c2b7226a', 'c62d1558', 'ca97e870', 'cd69d734', 'cd6cfbb2', 'ce716ed0', 'cfa4d5ee', 'd11c8368', 'd492403c', 'd510fb8e', 'd71634a8', 'd830f332', 'd882bb54', 'dd1b2c1e', 'e98a5048', 'ea55d650', 'ef9593f2', 'fb0895aa', 'ff616302']
 
     # #### SINGLE FILENAME
-    # df = pd.read_csv('data/adsb_decoded_in_eham/ADSB_DECODED_20180101.csv.gz')  # , converters={'callsign': lambda s: s.replace('_', '')})
+    df = pd.read_csv('data/adsb_decoded_in_eham/ADSB_DECODED_20180101.csv.gz')  # , converters={'callsign': lambda s: s.replace('_', '')})
+    #df = df.query("fid in @fids")
 
     # #### ENTIRE DIRECTORY
-    path = './data/adsb_decoded_in_eham/'
-    max_number_of_files = 15
-    df = pd.concat(map(pd.read_csv, glob.glob(os.path.join(path, "*.csv.gz"))[:max_number_of_files]))
+    # path = './data/adsb_decoded_in_eham/'
+    # max_number_of_files = 20
+    # df = pd.concat(map(pd.read_csv, glob.glob(os.path.join(path, "*.csv.gz"))[:max_number_of_files]))
     log("Completed reading CSV")
 
     orig_df = copy.deepcopy(df)
@@ -222,42 +282,54 @@ if __name__ == "__main__":
     adjacency_matrix(W, x, sigma, use_cuda=use_cuda)
     log("Calculated adjacency matrix")
 
-    result = []
-    spectralCluster(W, stop, result)
+    cluster_result = np.zeros(num_groups, dtype='int')
+    original_indices = np.array(range(W.shape[0]))
+    spectralCluster(W, omega_min, cluster_result, original_indices, min_cluster_size)
     log("Finished spectralCluster")
-    fid_to_cluster_map = {}
-    for cluster_number, fidlist_indices in enumerate(result):
-        for fid in fid_list[fidlist_indices.ravel()]:
-            fid_to_cluster_map[fid] = cluster_number
+    fid_to_cluster_map = {fid_list[i]: c_r for i, c_r in enumerate(cluster_result)}
+    # for cluster_number, fidlist_indices in enumerate(result):
+    #     for fid in fid_list[fidlist_indices.ravel()]:
+    #         fid_to_cluster_map[fid] = cluster_number
     df.query('fid not in @discarded_fids', inplace=True)
     df['cluster'] = df['fid'].map(fid_to_cluster_map)
     log("Determined fid_to_cluster_map")
-    log("{0} clusters found (sigma={1}, omega_min={2})".format(1+max(fid_to_cluster_map.values()), 1, omega_min))
+    log("{0} clusters found (sigma={1}, omega_min={2})".format(1+max(fid_to_cluster_map.values()), sigma, omega_min))
 
     cluster_to_fid_map = inverse_map(fid_to_cluster_map)
     fid_to_index_map = {v: k for k, v in enumerate(fid_list)}
+    tracks_means = []
+    noise = None
     # Sort from largest to smallest cluster
     for key, fids in sorted(cluster_to_fid_map.items(), key=lambda a: len(a[1]))[::-1]:
         tracks_concat_index = np.array([fid_to_index_map[fid] for fid in fids])
         tracks_concat = x[tracks_concat_index]
+        if key == -1:
+            noise = tracks_concat.reshape((-1, x.shape[2]))
+            continue
         tracks_concat_flat = tracks_concat.reshape((-1, x.shape[2]))
         tracks_mean = tracks_concat.mean(axis=0)
+        tracks_means.append(tracks_mean)
+        if plot_individual_clusters:
+            fig = plt.figure()
+            airspace_projected = prepare_gdf_for_plotting(airspace)
+            ax = airspace_projected.plot(figsize=(10, 10), alpha=0.5, edgecolor='k')
 
-        fig = plt.figure()
-        airspace_projected = prepare_gdf_for_plotting(airspace)
-        ax = airspace_projected.plot(figsize=(10, 10), alpha=0.5, edgecolor='k')
+            ax.set_axis_off()
+            colorcycle = cycle(['C0', 'C1'])
+            sizecycle = cycle([1, 0.1])
+            for tracks in [tracks_mean, tracks_concat_flat]:
+                color = next(colorcycle)
+                size = next(sizecycle)
+                gs = geopandas.GeoSeries(geopandas.points_from_xy(tracks[:, 0], tracks[:, 1]))
+                gs.crs = {'init': 'epsg:3857', 'no_defs': True}
+                gs.plot(ax=ax, color=color, markersize=size, linewidth=size)
+            # ax.scatter(tracks_mean[:, 0].min() - 1.2 * (tracks_mean[:, 0].max() - tracks_mean[:, 0].min()),
+            #            tracks_mean[:, 1].min(), c='C2')
+            plt.show()
+            log("{0} tracks in cluster".format(len(fids)))
+            if input("Continue? [y/n]").capitalize() == "N":
+                break
+    plot_means(np.vstack(tracks_means), noise, airspace)
+    # W_cluster = np.zeros((tracks_concat.shape[0], tracks_concat.shape[0]), dtype='float64')
+    # adjacency_matrix(W_cluster, tracks_concat, sigma, use_cuda=use_cuda)
 
-        # add_basemap(ax, zoom=zoom, ll=False)
-
-        ax.set_axis_off()
-        colorcycle = cycle(['C0', 'C1'])
-        sizecycle = cycle([1, 0.1])
-        for tracks in [tracks_mean, tracks_concat_flat]:
-            color = next(colorcycle)
-            size = next(sizecycle)
-            gs = geopandas.GeoSeries(geopandas.points_from_xy(tracks[:, 0], tracks[:, 1]))
-            gs.crs = {'init': 'epsg:3857', 'no_defs': True}
-            gs.plot(ax=ax, color=color, markersize=size, linewidth=size)
-        plt.show()
-        if input("Continue? [y/n]").capitalize() == "N":
-            break
