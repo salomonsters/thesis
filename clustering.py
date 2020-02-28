@@ -16,9 +16,9 @@ from tools import create_logger
 from numba import float64, int_
 
 Adjacency_spec = [
-    ('W', float64[:,:]),
-    ('D', float64[:,:]),
-    ('x', float64[:,:,:]),
+    ('W', float64[:, :]),
+    ('D', float64[:, :]),
+    ('x', float64[:, :, :]),
     ('K', int_),
     ('sigmas', float64[:]),
 ]
@@ -27,8 +27,8 @@ Adjacency_spec = [
 @numba.jitclass(Adjacency_spec)
 class Adjacency:
     def __init__(self, x, K):
-        self.W = np.zeros((x.shape[0],  x.shape[0]))
-        self.D = np.zeros((x.shape[0],  x.shape[0]))
+        self.W = np.zeros((x.shape[0], x.shape[0]))
+        self.D = np.zeros((x.shape[0], x.shape[0]))
         self.sigmas = np.zeros(x.shape[0])
         self.K = K
         self.x = x
@@ -58,7 +58,8 @@ class Adjacency:
                     dist_squared = 0.
                     for k in range(self.x.shape[1]):
                         for l in range(self.x.shape[2]):
-                            dist_squared = dist_squared + (self.x[i, k, l] - self.x[j, k, l]) * (self.x[i, k, l] - self.x[j, k, l])
+                            dist_squared = dist_squared + (self.x[i, k, l] - self.x[j, k, l]) * (
+                                    self.x[i, k, l] - self.x[j, k, l])
                     self.D[i, j] = dist_squared
                     self.D[j, i] = dist_squared
         for i in numba.prange(self.D.shape[0]):
@@ -113,7 +114,7 @@ class Clustering:
             # self.stop_function = lambda X, Y: np.max(X) / np.max(Y) < 4*omega_min
 
             # self.stop_function = lambda X, Y: np.std(X) < omega_min
-            self.stop_function = lambda X, Y: np.var(X)/np.var(Y) < e_var or np.mean(X) > e_mean
+            self.stop_function = lambda X, Y: np.var(X) / np.var(Y) < e_var or np.mean(X) > e_mean
         self.result_indices = None
         self.n_clusters = 0
 
@@ -124,7 +125,7 @@ class Clustering:
     def fiedler_vector(W):
         D = np.zeros_like(W)
         for i in range(W.shape[0]):
-            D[i,i] = np.sum(W[i,:])
+            D[i, i] = np.sum(W[i, :])
         L = D - W
         l, U = np.linalg.eigh(L)
 
@@ -137,7 +138,7 @@ class Clustering:
         W = adjacency.W
         return W
 
-    def spectral_cluster(self, W, original_indices=None):
+    def spectral_cluster(self, W, original_indices=None, recursion=''):
         if self.result_indices is None:
             self.result_indices = np.zeros(W.shape[0], dtype='int')
         if original_indices is None:
@@ -151,16 +152,21 @@ class Clustering:
         W_ir_ir = select_rows_and_columns(W, i_r, i_r)
 
         if len(i_l) == 0 or len(i_r) == 0:
-            warnings.warn("Fiedler vector has same sign for all entries, no meaningful clustering possible for indices {}".format(original_indices))
+            warnings.warn(
+                "Fiedler vector has same sign for all entries, no meaningful clustering possible for indices {}".format(
+                    original_indices))
             return
 
         assert not array_equal(original_indices[i_l], original_indices)
         assert not array_equal(original_indices[i_r], original_indices)
 
         if self.visualisation:
-            title = "blue: n={0}, mean={1:.4f}, var={2:.4f}; ".format(len(i_l), np.mean(W_il_il), np.var(W_il_il)/np.var(W)) + \
-                    "orange: n={0}, mean={1:.4f}, var={2:.4f}".format(len(i_r), np.mean(W_ir_ir), np.var(W_ir_ir)/np.var(W))
-            self.visualisation.intermediate_result(self.x[original_indices[i_l]], self.x[original_indices[i_r]], title)
+            title = "blue: n={0}, mean={1:.4f}, var={2:.4f}; ".format(len(i_l), np.mean(W_il_il),
+                                                                      np.var(W_il_il) / np.var(W)) + \
+                    "orange: n={0}, mean={1:.4f}, var={2:.4f}".format(len(i_r), np.mean(W_ir_ir),
+                                                                      np.var(W_ir_ir) / np.var(W))
+            self.visualisation.intermediate_result(self.x[original_indices[i_l]], self.x[original_indices[i_r]], title,
+                                                   fname_arg=recursion)
         if self.stop_function(W_il_il, W) or len(i_l) < self.min_cluster_size:
             if len(i_l) < self.min_cluster_size:
                 self.result_indices[original_indices[i_l]] = -1
@@ -168,10 +174,12 @@ class Clustering:
                 self.n_clusters += 1
                 self.result_indices[original_indices[i_l]] = self.n_clusters
                 if self.visualisation:
-                    title = "n={0}, mean={1:.4f}, var={2:.4f}".format(len(i_l), np.mean(W_il_il),np.var(W_il_il) / np.var(W))
-                    self.visualisation.plot_cluster(self.x[original_indices[i_l]], title, fname_arg="cluster_{0}".format(self.n_clusters), is_intermediate=True)
+                    title = "n={0}, mean={1:.4f}, var={2:.4f}".format(len(i_l), np.mean(W_il_il),
+                                                                      np.var(W_il_il) / np.var(W))
+                    self.visualisation.plot_cluster(self.x[original_indices[i_l]], title,
+                                                    fname_arg="{0}_A".format(recursion), is_intermediate=True)
         else:
-            self.spectral_cluster(W_il_il, original_indices[i_l])
+            self.spectral_cluster(W_il_il, original_indices[i_l], recursion + 'A')
         if self.stop_function(W_ir_ir, W) or len(i_r) < self.min_cluster_size:
             if len(i_r) < self.min_cluster_size:
                 self.result_indices[original_indices[i_r]] = -1
@@ -179,10 +187,12 @@ class Clustering:
                 self.n_clusters += 1
                 self.result_indices[original_indices[i_r]] = self.n_clusters
                 if self.visualisation:
-                    title = "n={0}, mean={1:.4f}, var={2:.4f}".format(len(i_l), np.mean(W_il_il),np.var(W_il_il) / np.var(W))
-                    self.visualisation.plot_cluster(self.x[original_indices[i_l]], title, fname_arg="cluster_{0}".format(self.n_clusters), is_intermediate=True)
+                    title = "n={0}, mean={1:.4f}, var={2:.4f}".format(len(i_r), np.mean(W_ir_ir),
+                                                                      np.var(W_ir_ir) / np.var(W))
+                    self.visualisation.plot_cluster(self.x[original_indices[i_r]], title,
+                                                    fname_arg="{0}_B".format(recursion), is_intermediate=True)
         else:
-            self.spectral_cluster(W_ir_ir, original_indices[i_r])
+            self.spectral_cluster(W_ir_ir, original_indices[i_r], recursion + 'B')
 
     # Ary_in: first dimension is fid, second is rows, third is data
     # ary out: first dimension fid, second rows, third data (but then scaled and averaged)
@@ -199,7 +209,8 @@ class Clustering:
             ary_out[i, :, :] = ary_in[i, index_new, :]
 
     @classmethod
-    def scale_and_average_df_numba_wrapper(cls, df, sample_to_n_rows, fields=('lat', 'lon'), dtype='float64', alt_conversion=1.):
+    def scale_and_average_df_numba_wrapper(cls, df, sample_to_n_rows, fields=('lat', 'lon'), dtype='float64',
+                                           alt_conversion=1.):
         for field_counter, field in enumerate(fields):
             fields = list(fields)
             if field == 'lat':
@@ -209,21 +220,24 @@ class Clustering:
                 df['y'] = lat2y(df['lat'].values)
                 fields[field_counter] = 'y'
             if field == 'alt':
-                df['alt_scaled'] = df['alt']*alt_conversion
+                df['alt_scaled'] = df['alt'] * alt_conversion
                 fields[field_counter] = 'alt_scaled'
 
         df_grouped = df.set_index('fid')[fields].groupby('fid')
         index_map_naive = np.array(df_grouped.count().index, dtype='str')
         gdf_as_numpy_arrays = df_grouped.apply(pd.DataFrame.to_numpy)
         rows_per_numpy_array = [_.shape[0] for _ in gdf_as_numpy_arrays]
-        converted_df = np.array([gdf_as_numpy_arrays[i] for i, n_rows in enumerate(rows_per_numpy_array) if n_rows >= sample_to_n_rows])
-        discarded_fids = np.array([index_map_naive[i] for i, n_rows in enumerate(rows_per_numpy_array) if n_rows < sample_to_n_rows])
-        index_map = np.array([index_map_naive[i] for i, n_rows in enumerate(rows_per_numpy_array) if n_rows >= sample_to_n_rows])
+        converted_df = np.array(
+            [gdf_as_numpy_arrays[i] for i, n_rows in enumerate(rows_per_numpy_array) if n_rows >= sample_to_n_rows])
+        discarded_fids = np.array(
+            [index_map_naive[i] for i, n_rows in enumerate(rows_per_numpy_array) if n_rows < sample_to_n_rows])
+        index_map = np.array(
+            [index_map_naive[i] for i, n_rows in enumerate(rows_per_numpy_array) if n_rows >= sample_to_n_rows])
         max_n_datapoints = np.max(rows_per_numpy_array)
         n_fields = len(fields)
         ary_in_shape = converted_df.shape[0], max_n_datapoints, n_fields
         ary_in = np.zeros(ary_in_shape, dtype=dtype)
-        ary_in[:,:,:] = np.nan
+        ary_in[:, :, :] = np.nan
 
         for i in range(converted_df.shape[0]):
             ary_to_fil = converted_df[i]
@@ -235,7 +249,6 @@ class Clustering:
 
         return ary_out, index_map, discarded_fids
 
-
     @staticmethod
     def inverse_map(map):
         inv_map = {}
@@ -246,11 +259,9 @@ class Clustering:
 
 
 class VisualiseClustering:
-
     colorcycle = cycle(['C0', 'C1'])
     sizecycle = cycle([1, 0.1])
     crs = {'init': 'epsg:3857', 'no_defs': True}
-    intermediate_result_counter = 0
     figsize = (10, 10)
 
     def __init__(self, airspace, save_path=None, intermediate_results=False, show=True, use_titles=True):
@@ -264,7 +275,7 @@ class VisualiseClustering:
     def __del__(self):
         plt.close()
 
-    def intermediate_result(self, left, right, title):
+    def intermediate_result(self, left, right, title, fname_arg=None):
         left_flat = left.reshape((-1, left.shape[2]))
         right_flat = right.reshape((-1, right.shape[2]))
         ax = self.ax
@@ -280,8 +291,8 @@ class VisualiseClustering:
         if self.use_titles:
             ax.set_title(title)
         if self.save_path:
-            self.fig.savefig(self.save_path.format(self.intermediate_result_counter))
-            self.intermediate_result_counter += 1
+            self.fig.savefig(self.save_path.format(fname_arg))
+            # self.intermediate_result_counter += 1
         if self.show:
             self.fig.show()
         self.ax.clear()
@@ -309,7 +320,7 @@ class VisualiseClustering:
         if self.save_path and fname_arg:
             self.fig.savefig(self.save_path.format(fname_arg))
         if self.show:
-            plt.show()
+            self.fig.show()
         self.ax.clear()
 
     def plot_means(self, tracks, unclustered, title=None, fname_arg=None):
@@ -331,7 +342,7 @@ class VisualiseClustering:
         if self.save_path and fname_arg:
             self.fig.savefig(self.save_path.format(fname_arg))
         if self.show:
-            plt.show()
+            self.fig.show()
         self.ax.clear()
 
 
@@ -347,18 +358,23 @@ if __name__ == "__main__":
     fields = ['lat', 'lon']
     K = 6
     plot_individual_clusters = True
+    use_plot_titles = True
+    show_plots = False
 
     one_matrix_shape = n_data_points, len(fields)
     airspace = ehaa_airspace.query(airspace_query)
 
-    visualisation = VisualiseClustering(airspace, save_path='./figures/eham_20180101_{0}.png', intermediate_results=plot_individual_clusters, use_titles=False, show=True)
+    visualisation = VisualiseClustering(airspace, save_path='./figures/eham_20180101_{0}.png',
+                                        intermediate_results=plot_individual_clusters, use_titles=use_plot_titles,
+                                        show=show_plots)
     machine_precision = np.finfo(np.float64).eps
 
     log = create_logger(verbose, "Clustering")
     log("Start reading csv")
 
     # #### SINGLE FILENAME
-    df = pd.read_csv('data/adsb_decoded_in_eham/ADSB_DECODED_20180101.csv.gz')  # , converters={'callsign': lambda s: s.replace('_', '')})
+    df = pd.read_csv(
+        'data/adsb_decoded_in_eham/ADSB_DECODED_20180101.csv.gz')  # , converters={'callsign': lambda s: s.replace('_', '')})
     df.sort_values(by=['fid', 'ts'], inplace=True)
 
     # #### ENTIRE DIRECTORY
@@ -374,7 +390,8 @@ if __name__ == "__main__":
     if maxalt is not None:
         df = df[df['alt'] < maxalt]
 
-    x, fid_list, discarded_fids = Clustering.scale_and_average_df_numba_wrapper(df, n_data_points, fields, alt_conversion=3*1852*0.3048/2)
+    x, fid_list, discarded_fids = Clustering.scale_and_average_df_numba_wrapper(df, n_data_points, fields,
+                                                                                alt_conversion=3 * 1852 * 0.3048 / 2)
 
     log("Threw away {0} fid's that had less than {1} rows".format(len(discarded_fids), n_data_points))
 
@@ -409,6 +426,7 @@ if __name__ == "__main__":
             continue
         tracks_mean = tracks_concat.mean(axis=0)
         tracks_means.append(tracks_mean)
-    visualisation.plot_means(np.vstack(tracks_means), noise, title='Cluster means (blue) and unclustered tracks (orange)', fname_arg='AA_results_and_noise')
+    visualisation.plot_means(np.vstack(tracks_means), noise,
+                             title='Cluster means (blue) and unclustered tracks (orange)',
+                             fname_arg='AA_results_and_noise')
     del visualisation
-
