@@ -217,23 +217,29 @@ def spectralCluster(W, tresholds, result_indices, original_indices, min_cluster_
     #                                                                                                        np.var(W_il_il)/np.var(W),
     #                                                                                                        np.var(W_ir_ir)/np.var(W)))
 
-    # Stop either when the stop function is reached, or when we are not partitioning anymore
-    if len(i_l) == 0 or len(i_r) == 0:
-        if len(i_l) == 0:
-            result_indices[original_indices[i_r]] = -1
-            # result_indices[original_indices[i_r]] = np.max(result_indices) + 1
-        if len(i_r) == 0:
+    # # Stop either when the stop function is reached, or when we are not partitioning anymore
+    # if len(i_l) < min_cluster_size or len(i_r) < min_cluster_size:
+    #     if len(i_l)< min_cluster_size:
+    #         result_indices[original_indices[i_r]] = -1
+    #         # result_indices[original_indices[i_r]] = np.max(result_indices) + 1
+    #     if len(i_r) == 0:
+    #         result_indices[original_indices[i_l]] = -1
+    #         # result_indices[original_indices[i_l]] = np.max(result_indices) + 1
+    # else:
+    if stop_function(W_il_il, W) or array_equal(original_indices[i_l], original_indices) or len(i_l) < min_cluster_size:
+        if len(i_l) < min_cluster_size:
             result_indices[original_indices[i_l]] = -1
-            # result_indices[original_indices[i_l]] = np.max(result_indices) + 1
-    else:
-        if stop_function(W_il_il, W) or array_equal(original_indices[i_l], original_indices):  # or len(i_l) < min_cluster_size:
+        else:
             result_indices[original_indices[i_l]] = np.max(result_indices) + 1
+    else:
+        spectralCluster(W_il_il, tresholds, result_indices, original_indices[i_l], min_cluster_size)
+    if stop_function(W_ir_ir, W) or array_equal(original_indices[i_r], original_indices) or len(i_r) < min_cluster_size:
+        if len(i_r) < min_cluster_size:
+            result_indices[original_indices[i_r]] = -1
         else:
-            spectralCluster(W_il_il, tresholds, result_indices, original_indices[i_l], min_cluster_size)
-        if stop_function(W_ir_ir, W) or array_equal(original_indices[i_r], original_indices):  # or len(i_r) < min_cluster_size:
             result_indices[original_indices[i_r]] = np.max(result_indices) + 1
-        else:
-            spectralCluster(W_ir_ir, tresholds, result_indices, original_indices[i_r], min_cluster_size)
+    else:
+        spectralCluster(W_ir_ir, tresholds, result_indices, original_indices[i_r], min_cluster_size)
 
 
 def inverse_map(map):
@@ -266,18 +272,23 @@ def plot_cluster(tracks_mean, tracks_concat, airspace_projected, title):
     plt.title(title)
     plt.show()
 
-def plot_means(tracks, unclustered, airspace):
+
+def plot_means(tracks, unclustered, airspace, title=None):
     fig = plt.figure()
     airspace_projected = prepare_gdf_for_plotting(airspace)
     ax = airspace_projected.plot(figsize=(10, 10), alpha=0.5, edgecolor='k')
 
     ax.set_axis_off()
-    gs = geopandas.GeoSeries(geopandas.points_from_xy(tracks[:, 0], tracks[:, 1]))
-    gs.crs = {'init': 'epsg:3857', 'no_defs': True}
-    gs.plot(ax=ax, markersize=1, linewidth=1)
-    # gs_unclustered = geopandas.GeoSeries(geopandas.points_from_xy(unclustered[:, 0], unclustered[:, 1]))
-    # gs_unclustered.crs = {'init': 'epsg:3857', 'no_defs': True}
-    # gs_unclustered.plot(ax=ax, markersize=0.1, linewidth=0.1)
+    if tracks is not None:
+        gs = geopandas.GeoSeries(geopandas.points_from_xy(tracks[:, 0], tracks[:, 1]))
+        gs.crs = {'init': 'epsg:3857', 'no_defs': True}
+        gs.plot(ax=ax, markersize=1, linewidth=1, color='C0')
+    if unclustered is not None:
+        gs_unclustered = geopandas.GeoSeries(geopandas.points_from_xy(unclustered[:, 0], unclustered[:, 1]))
+        gs_unclustered.crs = {'init': 'epsg:3857', 'no_defs': True}
+        gs_unclustered.plot(ax=ax, markersize=0.1, linewidth=0.1, color='C1')
+    if title:
+        plt.title(title)
     plt.show()
 
 
@@ -287,15 +298,15 @@ if __name__ == "__main__":
     zoom = 12
     minalt = 200  # ft
     maxalt = 10000
-    sigma = 5000000.
+    sigma = None
     e_mean = 0.4
     e_var = 1
-    min_cluster_size = 10
+    min_cluster_size = 3
     n_data_points = 200
     fields = ['lat', 'lon']
-    K = 7
+    K = 6
     use_cuda = False
-    plot_individual_clusters = True
+    plot_individual_clusters = False
 # todo write verification cases for spectralcluster to see if partitioning is handled properly
 # todo maybe check some cases where we visually see overlap?
     one_matrix_shape = n_data_points, len(fields)
@@ -313,6 +324,7 @@ if __name__ == "__main__":
 
     # #### SINGLE FILENAME
     df = pd.read_csv('data/adsb_decoded_in_eham/ADSB_DECODED_20180101.csv.gz')  # , converters={'callsign': lambda s: s.replace('_', '')})
+    df.sort_values(by=['fid', 'ts'], inplace=True)
     #df = df.query("fid in @fids")
 
     # #### ENTIRE DIRECTORY
@@ -363,6 +375,7 @@ if __name__ == "__main__":
         tracks_concat_index = np.array([fid_to_index_map[fid] for fid in fids])
         tracks_concat = x[tracks_concat_index]
         if key == -1:
+            log("Couldn't cluster {0} tracks".format(len(tracks_concat_index)))
             noise = tracks_concat.reshape((-1, x.shape[2]))
             continue
         tracks_mean = tracks_concat.mean(axis=0)
@@ -371,7 +384,8 @@ if __name__ == "__main__":
             plot_cluster(tracks_mean, tracks_concat, airspace_projected, "$n={0}, \epsilon_{{mean}}={1},\epsilon_{{var}}={2}$".format(len(fids), e_mean, e_var))
             if input("Continue? [y/n]").capitalize() == "N":
                 break
-    plot_means(np.vstack(tracks_means), noise, airspace)
+    plot_means(None, x.reshape((-1, x.shape[2])), airspace, title='All tracks')
+    plot_means(np.vstack(tracks_means), noise, airspace, title='Cluster means (blue) and unclustered tracks (orange)')
     # W_cluster = np.zeros((tracks_concat.shape[0], tracks_concat.shape[0]), dtype='float64')
     # adjacency_matrix(W_cluster, tracks_concat, sigma, use_cuda=use_cuda)
 
