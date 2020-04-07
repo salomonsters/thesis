@@ -177,7 +177,7 @@ class Clustering:
                     title = "n={0}, mean={1:.4f}, var={2:.4f}".format(len(i_l), np.mean(W_il_il),
                                                                       np.var(W_il_il) / np.var(W))
                     self.visualisation.plot_cluster(self.x[original_indices[i_l]], title,
-                                                    fname_arg="{0}_A".format(recursion), is_intermediate=True)
+                                                    fname_arg="{0}_A_{1}".format(recursion, self.n_clusters), is_intermediate=True)
         else:
             self.spectral_cluster(W_il_il, original_indices[i_l], recursion + 'A')
         if self.stop_function(W_ir_ir, W) or len(i_r) < self.min_cluster_size:
@@ -190,7 +190,7 @@ class Clustering:
                     title = "n={0}, mean={1:.4f}, var={2:.4f}".format(len(i_r), np.mean(W_ir_ir),
                                                                       np.var(W_ir_ir) / np.var(W))
                     self.visualisation.plot_cluster(self.x[original_indices[i_r]], title,
-                                                    fname_arg="{0}_B".format(recursion), is_intermediate=True)
+                                                    fname_arg="{0}_B_{1}".format(recursion, self.n_clusters), is_intermediate=True)
         else:
             self.spectral_cluster(W_ir_ir, original_indices[i_r], recursion + 'B')
 
@@ -349,6 +349,7 @@ class VisualiseClustering:
 if __name__ == "__main__":
     verbose = True
     airspace_query = "airport=='EHAM'"
+    data_date = '20180101'
     minalt = 200  # ft
     maxalt = 10000
     e_mean = 0.4
@@ -364,7 +365,7 @@ if __name__ == "__main__":
     one_matrix_shape = n_data_points, len(fields)
     airspace = ehaa_airspace.query(airspace_query)
 
-    visualisation = VisualiseClustering(airspace, save_path='./figures/eham_20180101_{0}.png',
+    visualisation = VisualiseClustering(airspace, save_path='./figures/eham_{date}_{{0}}.png'.format(date=data_date),
                                         intermediate_results=plot_individual_clusters, use_titles=use_plot_titles,
                                         show=show_plots)
     machine_precision = np.finfo(np.float64).eps
@@ -374,7 +375,7 @@ if __name__ == "__main__":
 
     # #### SINGLE FILENAME
     df = pd.read_csv(
-        'data/adsb_decoded_in_eham/ADSB_DECODED_20180101.csv.gz')  # , converters={'callsign': lambda s: s.replace('_', '')})
+        'data/adsb_decoded_in_eham/ADSB_DECODED_{0}.csv.gz'.format(data_date))  # , converters={'callsign': lambda s: s.replace('_', '')})
     df.sort_values(by=['fid', 'ts'], inplace=True)
 
     # #### ENTIRE DIRECTORY
@@ -404,6 +405,7 @@ if __name__ == "__main__":
     clustering.spectral_cluster(W)
     log("Finished spectral_cluster")
     cluster_result = clustering.result_indices
+    n_clusters = clustering.n_clusters
 
     fid_to_cluster_map = {fid_list[i]: c_r for i, c_r in enumerate(cluster_result)}
     df.query('fid not in @discarded_fids', inplace=True)
@@ -415,13 +417,14 @@ if __name__ == "__main__":
     fid_to_index_map = {v: k for k, v in enumerate(fid_list)}
     tracks_means = []
     noise = None
-
+    n_noise = None
     # Sort from largest to smallest cluster
     for key, fids in sorted(cluster_to_fid_map.items(), key=lambda a: len(a[1]))[::-1]:
         tracks_concat_index = np.array([fid_to_index_map[fid] for fid in fids])
         tracks_concat = x[tracks_concat_index]
         if key == -1:
             log("Couldn't cluster {0} tracks".format(len(tracks_concat_index)))
+            n_noise = len(tracks_concat_index)
             noise = tracks_concat.reshape((-1, x.shape[2]))
             continue
         tracks_mean = tracks_concat.mean(axis=0)
@@ -430,3 +433,9 @@ if __name__ == "__main__":
                              title='Cluster means (blue) and unclustered tracks (orange)',
                              fname_arg='AA_results_and_noise')
     del visualisation
+    with open('data/clustered/eham_{0}.csv'.format(data_date), 'w') as fp:
+        parameters = {"K": K, "e_mean": e_mean, "e_var": e_var, "n_tracks_clustered": n_clusters,
+                      "n_unclustered": n_noise}
+        fp.write(repr(parameters))
+        fp.write("\n")
+        df.to_csv(fp)
