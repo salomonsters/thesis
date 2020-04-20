@@ -14,19 +14,21 @@ zoom = 14
 
 airspace = ehaa_airspace.query(airspace_query)
 
-fids = ['01cf3c72', '03adb898', '056b3610', '05df1fbc', '14bcd650',
-       '1d59b4fe', '1dba7bae', '2c587800', '4057f434', '419ae7d4',
-       '505ba72c', '56e809f0', '7ba88512', '89066a80', '9d5aadca',
-       '9d9dcc36', '9df2dcd0', 'a189653a', 'b879654c', 'c2b7226a',
-       'd492403c', 'd65ddc00', 'd71634a8', 'd882bb54', 'fb0895aa',
-       'ff616302']
-df = pd.read_csv('data/adsb_decoded_in_eham/ADSB_DECODED_20180101.csv.gz')#, converters={'callsign': lambda s: s.replace('_', '')})
-df = df.query("fid in @fids")
+clusters_to_analyse = [48, 51]
+data_date = '20180101'
+with open('data/clustered/eham_{0}.csv'.format(data_date), 'r') as fp:
+       fp.readline()
+       df_all = pd.read_csv(fp)
+       df_all.query('cluster in @clusters_to_analyse', inplace=True)
+       fids = df_all['fid'].unique()
+
+       # df = pd.read_csv('data/adsb_decoded_in_eham/ADSB_DECODED_20180101.csv.gz')#, converters={'callsign': lambda s: s.replace('_', '')})
+df = df_all.query("fid in @fids")
 # df['cluster'] = df['fid'].map(fid_to_cluster_map)
 ## ENTIRE DIRECTORY
 # path = './data/adsb_decoded_in_hoofddorp/'
 # df = pd.concat(map(pd.read_csv, glob.glob(os.path.join(path, "*.csv.gz"))))
-df_alt_min, df_alt_max = 200, 6000 # df['alt'].min(), df['alt'].max()
+df_alt_min, df_alt_max = 200, 10000 # df['alt'].min(), df['alt'].max()
 fig = plt.figure()
 airspace_projected = prepare_gdf_for_plotting(airspace)
 ax = airspace_projected.plot(figsize=(10, 10), alpha=0.5, edgecolor='k')
@@ -36,6 +38,6 @@ ax.set_axis_off()
 gdf = geopandas.GeoDataFrame(df, geometry=geopandas.points_from_xy(df.lon, df.lat))
 gdf_track_converted = prepare_gdf_for_plotting(gdf)
 joined = geopandas.sjoin(gdf_track_converted, airspace_projected, how="inner", op="intersects")
-joined.plot(ax=ax, column='alt', cmap='plasma', legend=True, markersize=0.1, linewidth=0.1, vmin=df_alt_min, vmax=df_alt_max)
+joined.plot(ax=ax, column='cluster', cmap='Accent', legend=True, markersize=0.1, linewidth=0.1)
 # gdf_track_converted.plot(ax=ax, column='cluster', cmap='plasma', legend=True, markersize=0.1, linewidth=0.1)
 plt.show()

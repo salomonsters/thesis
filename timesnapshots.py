@@ -44,6 +44,16 @@ def pairwise_range_rate(X):
     return pdist(X, range_rate)
 
 
+def cut_interval(df, dt, timeCol='ts'):
+
+    t0 = df[timeCol].min()
+    tend = df[timeCol].max()
+
+    bins = pd.interval_range(start=t0, end=tend+dt, freq=dt, closed='left')
+    df['interval'] = pd.cut(df[timeCol], bins)
+    return df.set_index('interval', drop=True)
+
+
 if __name__ == "__main__":
     verbose = True
     airport = 'EHAM'
@@ -87,13 +97,7 @@ if __name__ == "__main__":
     # Select time increment
     delta_t = 5*60 # seconds
     time_tolerance = 2 # seconds
-    timeCol = 'ts'
-    t0 = df[timeCol].min()
-    tend = df[timeCol].max()
-
-    bins = pd.interval_range(start=t0, end=tend, freq=delta_t)
-    df['interval'] = pd.cut(df[timeCol], bins)
-    grouped_per_interval = df.groupby(by='interval')
+    grouped_per_interval = cut_interval(df, dt=delta_t).groupby('interval')
     result_records = []
     ranges_list = []
     range_rates_list = []
@@ -102,7 +106,7 @@ if __name__ == "__main__":
             log("Skipping empty interval {0}".format(interval))
             continue
         fid_per_interval = interval_group.groupby('fid')
-        min_times = fid_per_interval[timeCol].min() - interval.left
+        min_times = fid_per_interval['ts'].min() - interval.left
 
         # Find fid's that have their first data within time_tolerance seconds of the lowest ts in the interval
         fids_for_snapshot = min_times[min_times < min_times.min() + time_tolerance].index.values
