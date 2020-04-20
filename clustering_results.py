@@ -54,7 +54,7 @@ if __name__ == "__main__":
         plt.figure()
         points.plot.scatter(x='index_along_track', y='roc', s=0.01)
         plt.show()
-        radial_scatter_plot(points, 'alt', 'h [ft]', query='roc <= 0', normalize_cmap=False, invert_theta=True)
-        radial_scatter_plot(points, 'alt', 'h [ft]', query='roc >= 0', normalize_cmap=False, invert_theta=True)
+        # radial_scatter_plot(points, 'alt', 'h [ft]', query='roc <= 0', normalize_cmap=False, invert_theta=True)
+        # radial_scatter_plot(points, 'alt', 'h [ft]', query='roc >= 0', normalize_cmap=False, invert_theta=True)
         if input("Continue? [y/n]").upper() == 'N':
             break

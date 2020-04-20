@@ -38,8 +38,8 @@ if __name__ == "__main__":
     df_downsampled = df.query('index_along_track >= 0')
     points_along_track = df_downsampled.groupby('index_along_track')
     fields = ['x', 'y', 'alt', 'gs']
-    df_along_track = points_along_track.mean()[fields].merge(points_along_track.quantile(q=0.0)[fields], suffixes=['', '_l'], right_index=True, left_index=True)
-    df_along_track = df_along_track.merge(points_along_track.quantile(q=1)[fields], suffixes=['', '_u'], right_index=True, left_index=True)
+    df_along_track = points_along_track.mean()[fields].merge(points_along_track[fields].quantile(q=0.0), suffixes=['', '_l'], right_index=True, left_index=True)
+    df_along_track = df_along_track.merge(points_along_track[fields].quantile(q=1), suffixes=['', '_u'], right_index=True, left_index=True)
 
     plt.figure()
     ax = df_along_track.plot(x='x', y='y')

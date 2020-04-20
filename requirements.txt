@@ -1,0 +1,11 @@
+numpy
+scipy
+pandas
+geopandas
+numba
+matplotlib
+scikit-learn
+contextily
+cudatoolkit=9.0
+pytest
+descartes

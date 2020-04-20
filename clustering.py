@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import numba
 import numpy as np
 import pandas as pd
+from pyproj import CRS
 
 from nl_airspace_def import ehaa_airspace
 from nl_airspace_helpers import prepare_gdf_for_plotting
@@ -261,7 +262,7 @@ class Clustering:
 class VisualiseClustering:
     colorcycle = cycle(['C0', 'C1'])
     sizecycle = cycle([1, 0.1])
-    crs = {'init': 'epsg:3857', 'no_defs': True}
+    crs = CRS(('epsg', '3857'))
     figsize = (10, 10)
 
     def __init__(self, airspace, save_path=None, intermediate_results=False, show=True, use_titles=True):

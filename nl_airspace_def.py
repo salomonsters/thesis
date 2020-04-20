@@ -1,5 +1,6 @@
 import geopandas
 import pandas as pd
+from pyproj import CRS
 
 from nl_airspace_helpers import create_ctr, parse_tma, parse_lat_lon, prepare_gdf_for_plotting  #, add_basemap
 
@@ -220,10 +221,10 @@ ehrd_airspace['airport'] = 'EHRD'
 hoofddorp_airspace = geopandas.GeoDataFrame(pd.DataFrame.from_records([parse_tma(hoofddorp)]))
 
 hoofddorp_airspace['airport'] = 'EHXX'
-hoofddorp_airspace.crs = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
+hoofddorp_airspace.crs = CRS("WGS84")
 
 ehaa_airspace = geopandas.GeoDataFrame(ehrd_airspace).append(geopandas.GeoDataFrame(eham_airspace))
-ehaa_airspace.crs = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
+ehaa_airspace.crs = CRS("WGS84")
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt

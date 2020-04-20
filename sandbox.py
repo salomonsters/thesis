@@ -115,15 +115,20 @@ def parallelize_dict(d, func, *args, **kwargs):
         _ = [r.get() for r in results]
     return out_dict
 
+@numba.njit
+def sand(box):
+    out = np.array([b1 := 2*box, 10*b1])
+    return out
 
 if __name__ == "__main__":
+    print(sand(5))
     # gdf = geopandas.GeoDataFrame.from_csv('data/adsb_in_eham_15.csv.gz')
-    from osgeo import osr
-
-    inp = osr.SpatialReference()
-    inp.ImportFromEPSG(2263)
-    out = osr.SpatialReference()
-    out.ImportFromEPSG(4326)
+    # from osgeo import osr
+    #
+    # inp = osr.SpatialReference()
+    # inp.ImportFromEPSG(2263)
+    # out = osr.SpatialReference()
+    # out.ImportFromEPSG(4326)
     #
     # n_data_points = 100
     # fields = ['x', 'y']
