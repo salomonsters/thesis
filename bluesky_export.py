@@ -11,17 +11,19 @@ CRE_fmt = "{row[timestamp]}> CRE {callsign}, {type}, {row[lat]}, {row[lon]}, {ro
 MOVE_fmt = "{row[timestamp]}> MOVE {callsign},{row[lat]}, {row[lon]},{row[alt]},{row[trk]},{row[gs]}{roc}"
 DEL_fmt = "{timestamp}> DEL {callsign}"
 timestamp_fmt = '%H:%M:%S.%f'
-init_commands = ['CDMETHOD STATEBASED',
-                 'ZONER 3',
-                 # 'CRELOG CONFLOG 1.0 Conflict log',
-                 # 'CONFLOG ADD FROM traf.asas confpairs_new dcpa_new tcpa_new tLOS_new qdr_new dist_new',
-                 # 'CONFLOG ON'
+init_commands = ['    CDMETHOD STATEBASED',
+                 '   ZONER 3',
+                 '  CRELOG CONFLOG 1.0 Conflict log',
+                 ' CONFLOG ADD FROM traf.cd confpairs dcpa tcpa tLOS qdr dist',
+                 'CONFLOG ON'
                  ]
-end_commands = ['HOLD']
+end_commands = ['CONFLOG OFF',
+                'HOLD']
 
 def bluesky_exporter(flight_data, ts_0, delete_after=10):
     positions = flight_data.sort_values(by='ts')
     positions = positions[~pd.isna(positions['trk'])]
+    #TODO: possibly augment missing trk/gs/roc data by interpolating and/or calculating based on change in position?
     timestamps = pd.to_datetime(positions['ts'] - ts_0, unit='s')
     positions['timestamp'] = timestamps.dt.strftime(timestamp_fmt)
     del_timestamp = (timestamps.iloc[-1] + pd.Timedelta(10, unit='s')).strftime(timestamp_fmt)
@@ -44,7 +46,7 @@ def bluesky_exporter(flight_data, ts_0, delete_after=10):
 
 if __name__ == "__main__":
 
-    scn_filename = 'scenarios/cluster_48.scn'
+    scn_filename = 'scenarios/cluster_48_51.scn'
     clusters_to_analyse = [48, 51]
     n_data_points = 200
     data_date = '20180101'
