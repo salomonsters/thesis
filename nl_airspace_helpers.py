@@ -101,6 +101,7 @@ def create_ctr(name, airspace_class="C", lower=0, upper=3000, centre=None, radiu
         "lower_limit_ft": lower,
         "upper_limit_ft": upper,
         "type": "CTR",
+        "ctr_centre": centre,
         "geometry": geometry
     }
 

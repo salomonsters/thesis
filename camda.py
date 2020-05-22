@@ -41,30 +41,32 @@ if __name__ == "__main__":
             # Stupid SettingWithCopyWarning
             assert np.all(df.loc[track_points.index[resampling_indices], 'index_along_track'] >= 0)
         df_start_stop_times = pd.DataFrame.from_records(fid_start_stop_times, columns=['fid', 't0', 'tend'])
-        df['duration'] = df['tend'] - df['t0']
+        df_start_stop_times['duration'] = df_start_stop_times['tend'] - df_start_stop_times['t0']
 
-        df_downsampled = df.query('index_along_track >= 0')
-        points_along_track = df_downsampled.groupby('index_along_track')
-        fields = ['x', 'y', 'alt', 'gs']
-        df_along_track = points_along_track.mean()[fields].merge(points_along_track[fields].quantile(q=0.0), suffixes=['', '_l'], right_index=True, left_index=True)
-        df_along_track = df_along_track.merge(points_along_track[fields].quantile(q=1), suffixes=['', '_u'], right_index=True, left_index=True)
-    
-        plt.figure()
-        ax = df_along_track.plot(x='x', y='y')
-        ax.fill_between(df_along_track['x_l'], df_along_track['y_l'], df_along_track['y_u'], alpha=0.5, step='mid', color='C0')
-        ax.fill_between(df_along_track['x_u'], df_along_track['y_l'], df_along_track['y_u'], alpha=0.5, step='mid', color='C0')
-        ax.fill_betweenx(df_along_track['y_l'], df_along_track['x_l'], df_along_track['x_u'], alpha=0.5, step='mid', color='C0')
-        ax.fill_betweenx(df_along_track['y_u'], df_along_track['x_l'], df_along_track['x_u'], alpha=0.5, step='mid', color='C0')
-        plt.legend(['mean', 'total area'])
-        plt.show()
-    
-        plt.figure()
-        ax = df_along_track.plot(y='alt',color='C3')
-        ax.fill_between(df_along_track.index, df_along_track['alt_l'], df_along_track['alt_u'])
-        plt.show()
-    
-        plt.figure()
-        ax = df_along_track.plot(y='gs',color='C3')
-        ax.fill_between(df_along_track.index, df_along_track['gs_l'], df_along_track['gs_u'])
-        plt.show()
-    
+        break
+        #
+        # df_downsampled = df.query('index_along_track >= 0')
+        # points_along_track = df_downsampled.groupby('index_along_track')
+        # fields = ['x', 'y', 'alt', 'gs']
+        # df_along_track = points_along_track.mean()[fields].merge(points_along_track[fields].quantile(q=0.0), suffixes=['', '_l'], right_index=True, left_index=True)
+        # df_along_track = df_along_track.merge(points_along_track[fields].quantile(q=1), suffixes=['', '_u'], right_index=True, left_index=True)
+        #
+        # plt.figure()
+        # ax = df_along_track.plot(x='x', y='y')
+        # ax.fill_between(df_along_track['x_l'], df_along_track['y_l'], df_along_track['y_u'], alpha=0.5, step='mid', color='C0')
+        # ax.fill_between(df_along_track['x_u'], df_along_track['y_l'], df_along_track['y_u'], alpha=0.5, step='mid', color='C0')
+        # ax.fill_betweenx(df_along_track['y_l'], df_along_track['x_l'], df_along_track['x_u'], alpha=0.5, step='mid', color='C0')
+        # ax.fill_betweenx(df_along_track['y_u'], df_along_track['x_l'], df_along_track['x_u'], alpha=0.5, step='mid', color='C0')
+        # plt.legend(['mean', 'total area'])
+        # plt.show()
+        #
+        # plt.figure()
+        # ax = df_along_track.plot(y='alt',color='C3')
+        # ax.fill_between(df_along_track.index, df_along_track['alt_l'], df_along_track['alt_u'])
+        # plt.show()
+        #
+        # plt.figure()
+        # ax = df_along_track.plot(y='gs',color='C3')
+        # ax.fill_between(df_along_track.index, df_along_track['gs_l'], df_along_track['gs_u'])
+        # plt.show()
+        #
