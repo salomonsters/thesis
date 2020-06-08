@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+from tools import cache_pickle
 
 
 def unique_conflicts(df, return_df_conflicts=False, dt_before_new_conflict=None, minimim_duration_for_conflict=None):
@@ -24,14 +25,17 @@ def unique_conflicts(df, return_df_conflicts=False, dt_before_new_conflict=None,
             if (start_on_even_rows and i % 2 == 1) or (not start_on_even_rows and i % 2 == 0):
                 continue
             row = df_simt.iloc[i]
+            row_to_append = list(row)
             if row['ac1'] > row['ac2']:  # check if we should take the second row
                 aircraft_pair = tuple(row[['ac2', 'ac1']])
+                row_to_append[list(df.columns).index('ac1')] = row['ac2']
+                row_to_append[list(df.columns).index('ac2')] = row['ac1']
             else:
                 aircraft_pair = tuple(row[['ac1', 'ac2']])
             if i + 1 >= df_simt.shape[0] or not (row['ac1'] == df_simt.iloc[i+1]['ac2'] and row['ac2'] == df_simt.iloc[i+1]['ac1']):
                 start_on_even_rows = not start_on_even_rows
 
-            conflicts.append(row)
+            conflicts.append(row_to_append)
             if aircraft_pair in distinct_conflicts_per_pair.keys():
                 if minimim_duration_for_conflict is not None and distinct_conflicts_per_pair[aircraft_pair] == 0:
                     if aircraft_pair not in previous_ts_aircraft_pairs:
@@ -67,6 +71,7 @@ def unique_conflicts(df, return_df_conflicts=False, dt_before_new_conflict=None,
     return distinct_conflicts_per_pair
 
 
+@cache_pickle(verbose=True)
 def get_conflict_counts_from_logfile(filename, logdir = './', return_df_conflicts=False, dt_before_new_conflict=None, minimim_duration_for_conflict=None):
     with open(os.path.join(logdir, filename), 'r') as f:
         f.readline()
@@ -79,8 +84,8 @@ def inter_and_intra_cluster_conflicts(conflict_counts):
     n_matrix = 0
     conflict_tuples = []
     for (ac1, ac2), count in conflict_counts.items():
-        fid1, cluster1 = ac1.split('_')
-        fid2, cluster2 = ac2.split('_')
+        fid1, cluster1 = ac1.split('_')[:2]
+        fid2, cluster2 = ac2.split('_')[:2]
         # Unclustered have cluster=-1 but we need semipositive indices, and cluster 0 shouldn't exist
         # but let's check that to be sure...
         if cluster1 == 0 or cluster2 == 0:
