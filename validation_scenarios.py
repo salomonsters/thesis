@@ -7,6 +7,24 @@ from nl_airspace_helpers import parse_lat_lon
 import geopandas
 
 
+def generate_tracks_within_box(cog, width, height, rotation, n_tracks, noise=None):
+    if noise is None:
+        rng = np.random.default_rng()
+        noise = 2 * (rng.random(size=(n_tracks, 2)) - 0.5)
+
+    x_start = np.ones(n_tracks) * (cog[0] + noise[:, 0] * width / 2)
+    y_start = np.ones(n_tracks) * (cog[1] - height / 2)
+    heading = (np.rad2deg(np.arctan2((noise[:, 1] - noise[:, 0]) * 0.5 * width, height)) + rotation) % 360
+
+    rotation_rad = np.deg2rad(rotation)
+    x_start, y_start = np.array([[np.cos(rotation_rad), np.sin(rotation_rad)],
+                                 [-np.sin(rotation_rad), np.cos(rotation_rad)]]) @ np.vstack([x_start, y_start])
+
+
+    return x_start, y_start, heading
+
+
+
 def generate_start_positions(target, radius, headings):
     bearings = np.pi - headings
     x_start = target[0] - np.degrees(radius / earth_r * np.sin(bearings) / np.cos(target[1]))
