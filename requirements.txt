@@ -9,3 +9,4 @@ contextily
 cudatoolkit=9.0
 pytest
 descartes
+pint

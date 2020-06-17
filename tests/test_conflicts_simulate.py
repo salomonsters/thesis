@@ -3,9 +3,10 @@ import logging
 import numpy as np
 import pytest
 from pytest import approx
+from pint import UnitRegistry, Quantity
 
-from conflicts.simulate import Aircraft, Flow
-
+from conflicts.simulate import Aircraft, Flow, get_in_unit
+ureg = UnitRegistry()
 
 def test_Aircraft():
     ac1 = Aircraft((0, 0), 90, 100, 0, 0, 'ac1')
@@ -28,6 +29,20 @@ def test_Aircraft():
     assert ac3.vs_fph == approx(-6000)
     ac3.step(1)
     assert ac3.alt == approx(0)
+    assert ac3.position == approx((0, 100))
+    assert ac3.v == approx((0, 100))
+    ac3.trk = 90
+    assert ac3.v == approx((100, 0))
+    ac3.step(1)
+    assert ac3.position == approx((100, 100))
+    ac3.gs = 50
+    assert ac3.v == approx((50, 0))
+    ac3.step(1)
+    assert ac3.position == approx((150, 100))
+
+    two_hour = 2*3600*ureg.second
+    ac3.step(two_hour)
+    assert ac3.position == approx((250, 100))
 
     with pytest.raises(NotImplementedError):
         ac1 & 3

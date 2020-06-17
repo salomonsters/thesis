@@ -1,7 +1,10 @@
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
 import logging
+
+import numpy as np
+
+from pint import UnitRegistry, Quantity
+ureg = UnitRegistry()
+
 
 class Aircraft:
     horizontal_separation_requirement = 3       # nm
@@ -51,6 +54,8 @@ class Aircraft:
         self.vs_fph = vs * 60.
 
     def step(self, dt):
+        if isinstance(dt, Quantity):
+            dt = dt.to(ureg.hour).magnitude
         dt = self.dtype(dt)
         if self.active:
             self.position += self.v * dt
