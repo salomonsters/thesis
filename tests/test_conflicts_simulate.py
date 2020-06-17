@@ -1,3 +1,4 @@
+import copy
 import logging
 
 import numpy as np
@@ -6,6 +7,7 @@ from pint import UnitRegistry
 from pytest import approx
 
 from conflicts.simulate import Aircraft, SingleAircraft, Flow, AircraftInFlow
+from conflicts.simulate import conflict_between
 
 ureg = UnitRegistry()
 
@@ -170,7 +172,6 @@ def aircraft_on_collision():
 
 
 def test_flow_collision(aircraft_on_collision):
-    import copy
 
     pos, trk, gs, alt, vs, callsign, active, index, ac = copy.deepcopy(aircraft_on_collision)
     flow = Flow(pos, trk, gs, alt, vs, callsign, active)
@@ -189,3 +190,20 @@ def test_flow_collision(aircraft_on_collision):
     assert np.sum(flow.collisions) == 2
     flow.step(0.1)
     assert np.sum(flow.collisions) == 0
+
+
+def test_conflicts_between(aircraft_on_collision):
+    pos, trk, gs, alt, vs, callsign, active, index, ac = copy.deepcopy(aircraft_on_collision)
+    flow = Flow(pos, trk, gs, alt, vs, callsign, active)
+    flow.activate('ac4')
+    assert not conflict_between(flow.aircraft[0], flow.aircraft[1])
+    assert conflict_between(flow.aircraft[0], flow.aircraft[1], t_lookahead=.36)
+    assert not conflict_between(flow.aircraft[2], flow.aircraft[3])
+    flow.step(0.35)
+    assert conflict_between(flow.aircraft[0], flow.aircraft[1])
+    flow.step(0.10)
+    assert conflict_between(flow.aircraft[2], flow.aircraft[3])
+    flow.step(0.05)
+    assert conflict_between(flow.aircraft[0], flow.aircraft[1])
+    flow.step(0.16)
+    assert not conflict_between(flow.aircraft[0], flow.aircraft[1])

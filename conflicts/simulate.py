@@ -2,6 +2,7 @@ import itertools
 import logging
 
 import numpy as np
+from numpy.linalg import norm
 from pint import UnitRegistry, Quantity
 
 ureg = UnitRegistry()
@@ -91,7 +92,7 @@ class SingleAircraft(Aircraft):
 
 
 class AircraftInFlow(Aircraft):
-    def __init__(self, index, position, trk, gs, alt, vs, callsign, active):
+    def __init__(self, index, position, trk, gs, alt, vs, callsign, active:np.ndarray):
         self.index = index
         super().__init__(position[index:index + 1], trk[index:index + 1], gs[index:index + 1], alt[index:index + 1],
                          vs[index:index + 1], callsign[index:index + 1], active[index:index + 1])
@@ -170,6 +171,37 @@ class Flow:
             if arg.shape[0] != n:
                 raise ValueError('Not all arguments have same first dimension')
         return n
+
+
+def conflict_between(own:Aircraft, intruder:Aircraft, t_lookahead=5./60):
+    x_rel = (intruder.position - own.position).reshape((2,))
+    v_rel = (own.v - intruder.v).reshape((2,))
+
+    t_horizontal_conflict = (np.inner(x_rel, v_rel) + np.array((-1, 1)) * np.sqrt(np.inner(x_rel, v_rel)**2 - norm(x_rel)**2*norm(v_rel)**2+norm(v_rel)**2*Aircraft.horizontal_separation_requirement**2))/(norm(v_rel)**2)
+    t_cpa = np.sum(t_horizontal_conflict)/2.
+    mindist = norm(t_cpa*v_rel - x_rel)
+    t_in_hor, t_out_hor = min(t_horizontal_conflict), max(t_horizontal_conflict)
+    horizontal_conflict = mindist < Aircraft.horizontal_separation_requirement and t_out_hor > 0 and t_in_hor < t_lookahead
+    if not horizontal_conflict:
+        return False
+
+    vs_rel_fph = own.vs_fph - intruder.vs_fph
+    alt_diff = intruder.alt - own.alt
+
+    if np.abs(vs_rel_fph) < 1e-8:
+        if np.abs(alt_diff) < Aircraft.vertical_separation_requirement:
+            # We have a horizontal conflict and we are flying level at conflicting altitudes, so we have a conflict
+            return True
+
+    t_vertical_conflict = (intruder.alt - own.alt + np.array((-1, 1))*Aircraft.vertical_separation_requirement)/vs_rel_fph
+    t_in_vert, t_out_vert = min(t_vertical_conflict), max(t_vertical_conflict)
+
+    t_in_combined = max(t_in_hor, t_in_vert)
+    # t_out_combined = max(t_out_hor, t_out_vert)
+
+    if t_in_combined < t_lookahead:
+        return True
+    return False
 
 
 if __name__ == "__main__":
