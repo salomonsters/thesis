@@ -7,7 +7,7 @@ from pint import UnitRegistry
 from pytest import approx
 
 from conflicts.simulate import Aircraft, SingleAircraft, Flow, AircraftInFlow
-from conflicts.simulate import conflict_between
+from conflicts.simulate import conflict_between, conflicts_between_multiple
 
 ureg = UnitRegistry()
 
@@ -192,10 +192,15 @@ def test_flow_collision(aircraft_on_collision):
     assert np.sum(flow.collisions) == 0
 
 
-def test_conflicts_between(aircraft_on_collision):
+def test_conflict_between(aircraft_on_collision):
     pos, trk, gs, alt, vs, callsign, active, index, ac = copy.deepcopy(aircraft_on_collision)
     flow = Flow(pos, trk, gs, alt, vs, callsign, active)
+
+    flow.deactivate('ac4')
+    assert not conflict_between(flow.aircraft[2], flow.aircraft[3], t_lookahead=1)
     flow.activate('ac4')
+    assert conflict_between(flow.aircraft[2], flow.aircraft[3], t_lookahead=1)
+
     assert not conflict_between(flow.aircraft[0], flow.aircraft[1])
     assert conflict_between(flow.aircraft[0], flow.aircraft[1], t_lookahead=.36)
     assert not conflict_between(flow.aircraft[2], flow.aircraft[3])
@@ -207,3 +212,21 @@ def test_conflicts_between(aircraft_on_collision):
     assert conflict_between(flow.aircraft[0], flow.aircraft[1])
     flow.step(0.16)
     assert not conflict_between(flow.aircraft[0], flow.aircraft[1])
+
+
+def test_conflicts_between_multiple(aircraft_on_collision):
+    for i in range(2):
+        pos, trk, gs, alt, vs, callsign, active, index, ac = copy.deepcopy(aircraft_on_collision)
+        flow = Flow(pos, trk, gs, alt, vs, callsign, active)
+        if i == 1:
+            flow.deactivate('ac4')
+        for step, t_lookahead in zip([0.0, 0.35, 0.1, 0.05, 0.16, 0.0],
+                                     [5/60, .36, 5/60, 5/60, 5/60, 0.]):
+            individual_conflicts = np.array([[conflict_between(flow.aircraft[i], flow.aircraft[j], t_lookahead) for i in flow.index] for j in flow.index])
+            combined_conflicts = conflicts_between_multiple(flow, t_lookahead)
+            flow.t_lookahead = t_lookahead
+            flow._update_collisions_and_conflicts()
+            assert np.alltrue(combined_conflicts == individual_conflicts)
+            assert np.alltrue(flow.conflicts == combined_conflicts)
+            flow.step(step)
+

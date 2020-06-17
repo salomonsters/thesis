@@ -3,6 +3,7 @@ import logging
 
 import numpy as np
 from numpy.linalg import norm
+from scipy.spatial.distance import cdist
 from pint import UnitRegistry, Quantity
 
 ureg = UnitRegistry()
@@ -103,6 +104,7 @@ class AircraftInFlow(Aircraft):
 
 class Flow:
     callsign_map = None
+    t_lookahead = 5./60.
 
     def __init__(self, position, trk, gs, alt, vs, callsign, active):
         self.n = self._check_dimensions_and_get_n(position, trk, gs, alt, vs, callsign, active)
@@ -124,9 +126,10 @@ class Flow:
                                         self.active) for i in self.index]
 
         self.collisions = np.empty((self.n, self.n), dtype=bool)
+        self.conflicts = np.empty((self.n, self.n), dtype=bool)
 
         self._calculate_active_aircraft_combinations()
-        self._update_collisions()
+        self._update_collisions_and_conflicts()
 
     def _calculate_active_aircraft_combinations(self):
         self.active_aircraft_combinations = list(itertools.combinations_with_replacement(self.index[self.active], 2))
@@ -141,7 +144,7 @@ class Flow:
                 logging.warning("Aircraft {} was already active".format(callsign))
             self.active[self.callsign_map[callsign]] = True
         self._calculate_active_aircraft_combinations()
-        self._update_collisions()
+        self._update_collisions_and_conflicts()
 
     def deactivate(self, callsign):
         return self.activate(callsign, True)
@@ -149,14 +152,16 @@ class Flow:
     def step(self, dt):
         self.position[self.active] += self.v[self.active] * dt
         self.alt[self.active] += self.vs_fph[self.active] * dt
-        self._update_collisions()
+        self._update_collisions_and_conflicts()
 
-    def _update_collisions(self):
+    def _update_collisions_and_conflicts(self):
         # Inactive aircraft have no collisions
         self.collisions[:, :] = False
         for i, j in self.active_aircraft_combinations:
             if i != j:
                 self.collisions[i, j] = self.collisions[j, i] = self.aircraft[i] & self.aircraft[j]
+
+        self.conflicts[:, :] = conflicts_between_multiple(self, t_lookahead=self.t_lookahead)
 
     def _populate_callsign_map(self, callsign_list):
         for i, callsign in enumerate(callsign_list):
@@ -173,36 +178,76 @@ class Flow:
         return n
 
 
-def conflict_between(own:Aircraft, intruder:Aircraft, t_lookahead=5./60):
+def conflict_between(own: Aircraft, intruder: Aircraft, t_lookahead=5./60):
+    if not (own.active and intruder.active):
+        return False
     x_rel = (intruder.position - own.position).reshape((2,))
     v_rel = (own.v - intruder.v).reshape((2,))
 
-    t_horizontal_conflict = (np.inner(x_rel, v_rel) + np.array((-1, 1)) * np.sqrt(np.inner(x_rel, v_rel)**2 - norm(x_rel)**2*norm(v_rel)**2+norm(v_rel)**2*Aircraft.horizontal_separation_requirement**2))/(norm(v_rel)**2)
-    t_cpa = np.sum(t_horizontal_conflict)/2.
-    mindist = norm(t_cpa*v_rel - x_rel)
-    t_in_hor, t_out_hor = min(t_horizontal_conflict), max(t_horizontal_conflict)
-    horizontal_conflict = mindist < Aircraft.horizontal_separation_requirement and t_out_hor > 0 and t_in_hor < t_lookahead
-    if not horizontal_conflict:
+    with np.errstate(invalid='ignore'):
+        t_horizontal_conflict = (np.inner(x_rel, v_rel) +
+                                 np.array((-1, 1)) * np.sqrt(
+                    np.inner(x_rel, v_rel)**2 - norm(x_rel)**2*norm(v_rel)**2+norm(v_rel)**2
+                    * Aircraft.horizontal_separation_requirement**2)
+                                 )/(norm(v_rel)**2)
+        t_cpa = np.sum(t_horizontal_conflict)/2.
+        minimum_distance = norm(t_cpa*v_rel - x_rel)
+        t_in_hor, t_out_hor = min(t_horizontal_conflict), max(t_horizontal_conflict)
+        horizontal_conflict = minimum_distance < Aircraft.horizontal_separation_requirement \
+                              and t_out_hor > 0\
+                              and t_in_hor < t_lookahead
+        if not horizontal_conflict:
+            return False
+
+        vs_rel_fph = own.vs_fph - intruder.vs_fph
+        alt_diff = intruder.alt - own.alt
+
+        if np.abs(vs_rel_fph) < 1e-8:
+            if np.abs(alt_diff) < Aircraft.vertical_separation_requirement:
+                # We have a horizontal conflict and we are flying level at conflicting altitudes, so we have a conflict
+                return True
+
+        t_vertical_conflict = (intruder.alt - own.alt + np.array((-1, 1))*Aircraft.vertical_separation_requirement
+                               )/vs_rel_fph
+        t_in_vert, t_out_vert = min(t_vertical_conflict), max(t_vertical_conflict)
+
+        t_in_combined = max(t_in_hor, t_in_vert)
+
+        if t_in_combined < t_lookahead:
+            return True
         return False
 
-    vs_rel_fph = own.vs_fph - intruder.vs_fph
-    alt_diff = intruder.alt - own.alt
 
-    if np.abs(vs_rel_fph) < 1e-8:
-        if np.abs(alt_diff) < Aircraft.vertical_separation_requirement:
-            # We have a horizontal conflict and we are flying level at conflicting altitudes, so we have a conflict
-            return True
+def conflicts_between_multiple(flow: Flow, t_lookahead=5. / 60):
+    x_rel = np.array([[flow.position[j] - flow.position[i] for i in flow.index] for j in flow.index])
+    v_rel = np.array([[flow.v[i] - flow.v[j] for i in flow.index] for j in flow.index])
+    both_active = np.array([[flow.active[i] & flow.active[j] for i in flow.index] for j in flow.index])
+    x_v_inner = np.einsum('ijk,ijk->ij', x_rel, v_rel)
+    v_rel_norm_sq = norm(v_rel, axis=2)**2
+    x_rel_norm_sq = norm(x_rel, axis=2)**2
+    with np.errstate(invalid='ignore'):
+        t_horizontal_conflict = np.array([(x_v_inner + np.sqrt(x_v_inner**2 - x_rel_norm_sq*v_rel_norm_sq+v_rel_norm_sq * Aircraft.horizontal_separation_requirement**2))/v_rel_norm_sq,
+                                          (x_v_inner - np.sqrt(x_v_inner ** 2 - x_rel_norm_sq * v_rel_norm_sq + v_rel_norm_sq * Aircraft.horizontal_separation_requirement ** 2)) / v_rel_norm_sq])
+        t_cpa = np.average(t_horizontal_conflict, axis=0)
+        minimum_distance = norm(np.einsum('ij,ijk->ijk', t_cpa, v_rel) - x_rel, axis=2)
+        t_in_hor = t_horizontal_conflict.min(axis=0)
+        t_out_hor = t_horizontal_conflict.max(axis=0)
+        horizontal_conflict = (minimum_distance < Aircraft.horizontal_separation_requirement) \
+                              & (t_out_hor > 0)\
+                              & (t_in_hor < t_lookahead)
+    vs_rel_fph = np.array([[flow.vs_fph[i] - flow.vs_fph[j] for i in flow.index] for j in flow.index])
+    alt_diff = np.array([[flow.alt[j] - flow.alt[i] for i in flow.index] for j in flow.index])
+    with np.errstate(divide='ignore'):
+        t_vertical_conflict = np.array([(alt_diff + Aircraft.vertical_separation_requirement)/vs_rel_fph,
+                                        (alt_diff - Aircraft.vertical_separation_requirement)/vs_rel_fph])
+        t_in_vert = np.min(t_vertical_conflict, axis=0)
+        t_out_vert = np.max(t_vertical_conflict, axis=0)
+    with np.errstate(invalid='ignore'):
+        t_in_combined = np.max(np.array([t_in_hor, t_in_vert]), axis=0)
+        vertical_conflict = t_in_combined < t_lookahead
+    level_conflict = ((np.abs(vs_rel_fph) < 1e-8) & (np.abs(alt_diff) < Aircraft.vertical_separation_requirement))
 
-    t_vertical_conflict = (intruder.alt - own.alt + np.array((-1, 1))*Aircraft.vertical_separation_requirement)/vs_rel_fph
-    t_in_vert, t_out_vert = min(t_vertical_conflict), max(t_vertical_conflict)
-
-    t_in_combined = max(t_in_hor, t_in_vert)
-    # t_out_combined = max(t_out_hor, t_out_vert)
-
-    if t_in_combined < t_lookahead:
-        return True
-    return False
-
+    return horizontal_conflict & (level_conflict | vertical_conflict) & both_active
 
 if __name__ == "__main__":
     pass
