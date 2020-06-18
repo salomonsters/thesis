@@ -236,21 +236,21 @@ def test_conflicts_between_multiple(aircraft_on_collision):
 @pytest.fixture
 def flows_on_collision():
     flow1_kwargs = {
-        'position': np.array([[0, 0], [5, 0]], dtype=Aircraft.dtype),
-        'trk': np.array([90, 90], dtype=Aircraft.dtype),
-        'gs': np.array([10, 10], dtype=Aircraft.dtype),
-        'alt': np.array([500, 2000], dtype=Aircraft.dtype),
-        'vs': np.array([0, 0], dtype=Aircraft.dtype),
-        'callsign': np.array(['ac1', 'ac2']),
-        'active': np.array([True, True], dtype=bool),
+        'position': np.array([[0, 20], [0, 15], [0, 10], [0, 5]], dtype=Aircraft.dtype),
+        'trk': np.array([90, 90, 90, 180], dtype=Aircraft.dtype),
+        'gs': np.array([10, 10, 10, 10], dtype=Aircraft.dtype),
+        'alt': np.array([2000, 500, 2000, 2000], dtype=Aircraft.dtype),
+        'vs': np.array([0, 0, 0, 0], dtype=Aircraft.dtype),
+        'callsign': np.array(['ac1_1', 'ac1_2', 'ac1_3', 'ac1_4']),
+        'active': np.array([True, True, True, True], dtype=bool),
     }
     flow2_kwargs = {
-        'position': np.array([[10, 5], [10, -5], [10, -15]], dtype=Aircraft.dtype),
-        'trk': np.array([180, 0, 0], dtype=Aircraft.dtype),
+        'position': np.array([[10, 20], [10, 10], [10, 15]], dtype=Aircraft.dtype),
+        'trk': np.array([270, 270, 270], dtype=Aircraft.dtype),
         'gs': np.array([10, 10, 10], dtype=Aircraft.dtype),
-        'alt': np.array([2000, 2000, 1000], dtype=Aircraft.dtype),
-        'vs': np.array([0, 0, 0], dtype=Aircraft.dtype),
-        'callsign': np.array(['ac3', 'ac4', 'ac5']),
+        'alt': np.array([2000, 2000, 2000], dtype=Aircraft.dtype),
+        'vs': np.array([0, 0, -23.2], dtype=Aircraft.dtype),
+        'callsign': np.array(['ac1_1', 'ac1_2', 'ac1_3']),
         'active': np.array([True, True, True], dtype=bool),
     }
     flow1 = Flow(**flow1_kwargs)
@@ -260,8 +260,6 @@ def flows_on_collision():
 
 def test_flows_on_collision(flows_on_collision):
     flow1, flow2, flow1_kwargs, _ = copy.deepcopy(flows_on_collision)
-    assert ~np.any(conflicts_between_multiple(flow1, flow2, t_lookahead=5/60.))
-    off_diagonal_indexer = np.where(~np.eye(flow1_kwargs['position'].shape[0],dtype=bool))
-    assert np.all(conflicts_between_multiple(flow2, flow2, t_lookahead=1)[off_diagonal_indexer])
-    # todo: finish
-    # assert np.alltrue(conflicts_between_multiple(flow1, flow2, t_lookahead=0.5) == np.array([[]]))
+    assert conflicts_between_multiple(flow1, flow2, t_lookahead=0.36).shape == (4, 3)
+    assert ~np.any(conflicts_between_multiple(flow1, flow2, t_lookahead=0.34))
+    assert np.alltrue(conflicts_between_multiple(flow1, flow2, t_lookahead=0.36) == np.array([[True, False, False], [False, False, True], [False, True, False], [False, False, False]]))

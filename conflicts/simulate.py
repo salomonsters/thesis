@@ -248,7 +248,7 @@ def conflicts_between_multiple(own: Flow, other: Flow = None, t_lookahead=5. / 6
         vertical_conflict = (t_in_combined < t_lookahead) & (t_out_vert > 0)
     level_conflict = ((np.abs(vs_rel_fph) < 1e-8) & (np.abs(alt_diff) < Aircraft.vertical_separation_requirement))
 
-    return horizontal_conflict & (level_conflict | vertical_conflict) & both_active
+    return (horizontal_conflict & (level_conflict | vertical_conflict) & both_active).T
 
 #
 #
@@ -290,27 +290,25 @@ def conflicts_between_multiple(own: Flow, other: Flow = None, t_lookahead=5. / 6
 
 
 if __name__ == "__main__":
-    import numba
-    from collections import namedtuple
-
-    AircraftTuple = namedtuple('Aircraft',
-                               ('position', 'v', 'alt', 'vs_fph', 'active',
-                                'horizontal_separation_requirement', 'vertical_separation_requirement'))
-
-
-
-    pos = np.array([[0, 0], [10, 0], [5, 10], [5, 5]], dtype=Aircraft.dtype)
-    trk = np.array([90, 270, 180, 0], dtype=Aircraft.dtype)
-    gs = np.array([10, 10, 10, 5], dtype=Aircraft.dtype)
-    alt = np.array([2000, 1000, 2000, 2000], dtype=Aircraft.dtype)
-    vs = np.array([0, 1900 / 30., 0, 0], dtype=Aircraft.dtype)
-    callsign = np.array(['ac1', 'ac2', 'ac3', 'ac4'])
-    active = np.array([True, True, True, True], dtype=bool)
-    index = np.arange(4, dtype=int)
-    ac = [AircraftInFlow(i, pos, trk, gs, alt, vs, callsign, active) for i in index]
-    flow = Flow(pos, trk, gs, alt, vs, callsign, active)
-    for i, j in itertools.combinations_with_replacement(range(len(flow.aircraft)), 2):
-        ac1 = AircraftTuple(flow.aircraft[i].position, flow.aircraft[i].v, flow.aircraft[i].alt, flow.aircraft[i].vs_fph, flow.aircraft[i].active, Aircraft.horizontal_separation_requirement, Aircraft.vertical_separation_requirement)
-        ac2 = AircraftTuple(flow.aircraft[j].position, flow.aircraft[j].v, flow.aircraft[j].alt, flow.aircraft[j].vs_fph, flow.aircraft[j].active, Aircraft.horizontal_separation_requirement, Aircraft.vertical_separation_requirement)
-        print(conflict_between_numba(ac1, ac2))
+    flow1_kwargs = {
+        'position': np.array([[0, 20], [0, 15], [0, 10], [0, 5]], dtype=Aircraft.dtype),
+        'trk': np.array([90, 90, 90, 180], dtype=Aircraft.dtype),
+        'gs': np.array([10, 10, 10, 10], dtype=Aircraft.dtype),
+        'alt': np.array([2000, 500, 2000, 2000], dtype=Aircraft.dtype),
+        'vs': np.array([0, 0, 0, 0], dtype=Aircraft.dtype),
+        'callsign': np.array(['ac1_1', 'ac1_2', 'ac1_3', 'ac1_4']),
+        'active': np.array([True, True, True, True], dtype=bool),
+    }
+    flow2_kwargs = {
+        'position': np.array([[10, 20], [10, 10], [10, 15]], dtype=Aircraft.dtype),
+        'trk': np.array([270, 270, 270], dtype=Aircraft.dtype),
+        'gs': np.array([10, 10, 10], dtype=Aircraft.dtype),
+        'alt': np.array([2000, 2000, 2000], dtype=Aircraft.dtype),
+        'vs': np.array([0, 0, -23.2], dtype=Aircraft.dtype),
+        'callsign': np.array(['ac1_1', 'ac1_2', 'ac1_3']),
+        'active': np.array([True, True, True], dtype=bool),
+    }
+    flow1 = Flow(**flow1_kwargs)
+    flow2 = Flow(**flow2_kwargs)
+    print(conflicts_between_multiple(flow1, flow2, t_lookahead=7/20-0.01))
 
