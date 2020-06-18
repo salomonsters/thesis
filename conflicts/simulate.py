@@ -2,6 +2,7 @@ import copy
 import itertools
 import logging
 from collections import OrderedDict
+from numbers import Number
 
 import numpy as np
 from numpy.linalg import norm
@@ -136,6 +137,33 @@ class Flow:
 
         self._calculate_active_aircraft_combinations()
         self._update_collisions_and_conflicts()
+
+    @classmethod
+    def expand_properties(cls, kwargs: dict, n_from='callsign'):
+        flow_kwargs = {}
+        n = len(kwargs[n_from])
+        for k, v in kwargs.items():
+            if isinstance(v, Number):
+                if isinstance(v, bool):
+                    flow_kwargs[k] = v * np.ones(n, dtype=bool)
+                else:
+                    flow_kwargs[k] = v * np.ones(n, dtype=Aircraft.dtype)
+            elif isinstance(v, tuple):
+                flow_kwargs[k] = np.zeros((n, len(v)), dtype=Aircraft.dtype)
+                flow_kwargs[k][:, :] = v
+            elif isinstance(v, list):
+                if len(v) != n:
+                    raise ValueError("Incorrect first dimension for key {}: {}"
+                                     " (should be {} based on {}".format(k, len(v), n, n_from))
+                flow_kwargs[k] = np.array(v)
+            elif isinstance(v, np.ndarray):
+                if v.shape[0] != n:
+                    raise ValueError("Incorrect first dimension for key {}: {}"
+                                     " (should be {} based on {}".format(k, v.shape[0], n, n_from))
+                flow_kwargs[k] = v
+            else:
+                raise ValueError("Unsupported type for key {}: {}".format(k, type(v)))
+        return cls(**flow_kwargs)
 
     def _calculate_active_aircraft_combinations(self):
         self.active_aircraft_combinations = list(itertools.combinations_with_replacement(self.index[self.active], 2))
@@ -326,24 +354,24 @@ def conflicts_between_multiple(own: Flow, other: Flow=None, t_lookahead=5. / 60,
 
 
 if __name__ == "__main__":
+    flow0_kwargs = {
+        'position': (-10, 0),
+        'trk': 90,
+        'gs': 80,
+        'alt': 2000,
+        'vs': 0,
+        'callsign': ['flow_{0}_ac_{1}'.format(0, i) for i in range(100)],
+        'active': False,
+    }
     flow1_kwargs = {
-        'position': np.array([[0, 20], [0, 15], [0, 10], [0, 5]], dtype=Aircraft.dtype),
-        'trk': np.array([90, 90, 90, 180], dtype=Aircraft.dtype),
-        'gs': np.array([10, 10, 10, 10], dtype=Aircraft.dtype),
-        'alt': np.array([2000, 500, 2000, 2000], dtype=Aircraft.dtype),
-        'vs': np.array([0, 0, 0, 0], dtype=Aircraft.dtype),
-        'callsign': np.array(['ac1_1', 'ac1_2', 'ac1_3', 'ac1_4']),
-        'active': np.array([True, True, True, True], dtype=bool),
+        'position': (0, -10),
+        'trk': 90,
+        'gs': 80,
+        'alt': 2000,
+        'vs': 0,
+        'callsign': ['flow_{0}_ac_{1}'.format(1, i) for i in range(101)],
+        'active': False,
     }
-    flow2_kwargs = {
-        'position': np.array([[10, 20], [10, 10], [10, 15]], dtype=Aircraft.dtype),
-        'trk': np.array([270, 270, 270], dtype=Aircraft.dtype),
-        'gs': np.array([10, 10, 10], dtype=Aircraft.dtype),
-        'alt': np.array([2000, 2000, 2000], dtype=Aircraft.dtype),
-        'vs': np.array([0, 0, -23.2], dtype=Aircraft.dtype),
-        'callsign': np.array(['ac1_1', 'ac1_2', 'ac1_3']),
-        'active': np.array([True, True, True], dtype=bool),
-    }
-    flow1 = Flow(**flow1_kwargs)
-    flow2 = Flow(**flow2_kwargs)
+    flow1 = Flow.expand_properties(flow0_kwargs)
+    flow2 = Flow.expand_properties(flow1_kwargs)
     print(conflicts_between_multiple(flow1, flow2, t_lookahead=7/20-0.01))

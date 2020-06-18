@@ -313,3 +313,54 @@ def test_combined_flows(flows_on_collision, aircraft_on_collision):
                                                                    [True,  False, False, False],
                                                                    [False, False, False, True],
                                                                    [False, False, True,  False]]))
+
+
+def test_expand_properties():
+    flow0_kwargs = {
+        'position': (-10, 0),
+        'trk': 90,
+        'gs': 80,
+        'alt': 2000,
+        'vs': 0,
+        'callsign': ['flow_{0}_ac_{1}'.format(0, i) for i in range(100)],
+        'active': False,
+    }
+    flow = Flow.expand_properties(flow0_kwargs)
+    assert np.allclose(flow.position, np.array(100*[(-10, 0)], dtype=Aircraft.dtype))
+    assert np.allclose(flow.trk, 90*np.ones(100, dtype=Aircraft.dtype))
+    assert np.allclose(flow.gs, 80*np.ones(100, dtype=Aircraft.dtype))
+    assert np.allclose(flow.alt, 2000*np.ones(100, dtype=Aircraft.dtype))
+    assert np.allclose(flow.vs, 0*np.ones(100, dtype=Aircraft.dtype))
+    assert np.alltrue(flow.callsign == flow0_kwargs['callsign'])
+    assert np.allclose(flow.active, np.zeros(100, dtype=bool))
+    flow1_kwargs = {
+        'trk': np.ones(101)*90,
+        'callsign': ['flow_{0}_ac_{1}'.format(0, i) for i in range(100)],
+    }
+    with pytest.raises(ValueError):
+        Flow.expand_properties(flow1_kwargs)
+    with pytest.raises(ValueError):
+        Flow.expand_properties(flow1_kwargs, n_from='trk')
+    flow2_kwargs = {
+        'position': np.array(100*[(-20, 0)], dtype=Aircraft.dtype),
+        'trk': np.ones(100)*90,
+        'gs': 80,
+        'alt': 2000,
+        'vs': 0,
+        'callsign': ['flow_{0}_ac_{1}'.format(0, i) for i in range(100)],
+        'active': False,
+    }
+    flow2 = Flow.expand_properties(flow2_kwargs)
+    assert np.allclose(flow2.position, np.array(100*[(-20, 0)], dtype=Aircraft.dtype))
+    assert np.allclose(flow2.trk, 90*np.ones(100, dtype=Aircraft.dtype))
+    assert np.allclose(flow2.gs, 80*np.ones(100, dtype=Aircraft.dtype))
+    assert np.allclose(flow2.alt, 2000*np.ones(100, dtype=Aircraft.dtype))
+    assert np.allclose(flow2.vs, 0*np.ones(100, dtype=Aircraft.dtype))
+    assert np.alltrue(flow2.callsign == flow0_kwargs['callsign'])
+    assert np.allclose(flow2.active, np.zeros(100, dtype=bool))
+    flow3_kwargs = {
+        'position': 'abc',
+        'callsign': ['flow_{0}_ac_{1}'.format(0, i) for i in range(100)],
+    }
+    with pytest.raises(ValueError):
+        Flow.expand_properties(flow3_kwargs)
