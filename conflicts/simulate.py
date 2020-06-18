@@ -220,9 +220,9 @@ def conflict_between(own: Aircraft, intruder: Aircraft, t_lookahead=5./60):
 def conflicts_between_multiple(own: Flow, other: Flow = None, t_lookahead=5. / 60):
     if other is None:
         other = own
-    x_rel = -(np.expand_dims(own.position, 0) - np.expand_dims(other.position, 1))
-    v_rel = np.expand_dims(own.v, 0) - np.expand_dims(other.v, 1)
-    both_active = np.expand_dims(own.active, 0) & np.expand_dims(other.active, 1)
+    x_rel = -(np.expand_dims(own.position, 1) - np.expand_dims(other.position, 0))
+    v_rel = np.expand_dims(own.v, 1) - np.expand_dims(other.v, 0)
+    both_active = np.expand_dims(own.active, 1) & np.expand_dims(other.active, 0)
     x_v_inner = np.einsum('ijk,ijk->ij', x_rel, v_rel)
     v_rel_norm_sq = norm(v_rel, axis=2)**2
     x_rel_norm_sq = norm(x_rel, axis=2)**2
@@ -236,8 +236,8 @@ def conflicts_between_multiple(own: Flow, other: Flow = None, t_lookahead=5. / 6
         horizontal_conflict = (minimum_distance < Aircraft.horizontal_separation_requirement) \
                               & (t_out_hor > 0)\
                               & (t_in_hor < t_lookahead)
-    vs_rel_fph = -(np.expand_dims(own.vs_fph, 0) - np.expand_dims(other.vs_fph, 1))
-    alt_diff = np.expand_dims(own.alt, 0) - np.expand_dims(other.alt, 1)
+    vs_rel_fph = -(np.expand_dims(own.vs_fph, 1) - np.expand_dims(other.vs_fph, 0))
+    alt_diff = np.expand_dims(own.alt, 1) - np.expand_dims(other.alt, 0)
     with np.errstate(divide='ignore'):
         t_vertical_conflict = np.array([(alt_diff + Aircraft.vertical_separation_requirement)/vs_rel_fph,
                                         (alt_diff - Aircraft.vertical_separation_requirement)/vs_rel_fph])
@@ -248,7 +248,7 @@ def conflicts_between_multiple(own: Flow, other: Flow = None, t_lookahead=5. / 6
         vertical_conflict = (t_in_combined < t_lookahead) & (t_out_vert > 0)
     level_conflict = ((np.abs(vs_rel_fph) < 1e-8) & (np.abs(alt_diff) < Aircraft.vertical_separation_requirement))
 
-    return (horizontal_conflict & (level_conflict | vertical_conflict) & both_active).T
+    return horizontal_conflict & (level_conflict | vertical_conflict) & both_active
 
 #
 #
