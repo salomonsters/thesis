@@ -223,10 +223,45 @@ def test_conflicts_between_multiple(aircraft_on_collision):
         for step, t_lookahead in zip([0.0, 0.35, 0.1, 0.05, 0.16, 0.0],
                                      [5/60, .36, 5/60, 5/60, 5/60, 0.]):
             individual_conflicts = np.array([[conflict_between(flow.aircraft[i], flow.aircraft[j], t_lookahead) for i in flow.index] for j in flow.index])
-            combined_conflicts = conflicts_between_multiple(flow, t_lookahead)
+            combined_conflicts = conflicts_between_multiple(flow, t_lookahead=t_lookahead)
+            assert np.alltrue(conflicts_between_multiple(flow, t_lookahead=t_lookahead) ==
+                              conflicts_between_multiple(flow, copy.deepcopy(flow), t_lookahead=t_lookahead))
             flow.t_lookahead = t_lookahead
             flow._update_collisions_and_conflicts()
             assert np.alltrue(combined_conflicts == individual_conflicts)
             assert np.alltrue(flow.conflicts == combined_conflicts)
             flow.step(step)
 
+
+@pytest.fixture
+def flows_on_collision():
+    flow1_kwargs = {
+        'position': np.array([[0, 0], [5, 0]], dtype=Aircraft.dtype),
+        'trk': np.array([90, 90], dtype=Aircraft.dtype),
+        'gs': np.array([10, 10], dtype=Aircraft.dtype),
+        'alt': np.array([500, 2000], dtype=Aircraft.dtype),
+        'vs': np.array([0, 0], dtype=Aircraft.dtype),
+        'callsign': np.array(['ac1', 'ac2']),
+        'active': np.array([True, True], dtype=bool),
+    }
+    flow2_kwargs = {
+        'position': np.array([[10, 5], [10, -5], [10, -15]], dtype=Aircraft.dtype),
+        'trk': np.array([180, 0, 0], dtype=Aircraft.dtype),
+        'gs': np.array([10, 10, 10], dtype=Aircraft.dtype),
+        'alt': np.array([2000, 2000, 1000], dtype=Aircraft.dtype),
+        'vs': np.array([0, 0, 0], dtype=Aircraft.dtype),
+        'callsign': np.array(['ac3', 'ac4', 'ac5']),
+        'active': np.array([True, True, True], dtype=bool),
+    }
+    flow1 = Flow(**flow1_kwargs)
+    flow2 = Flow(**flow2_kwargs)
+    return flow1, flow2, flow1_kwargs, flow2_kwargs
+
+
+def test_flows_on_collision(flows_on_collision):
+    flow1, flow2, flow1_kwargs, _ = copy.deepcopy(flows_on_collision)
+    assert ~np.any(conflicts_between_multiple(flow1, flow2, t_lookahead=5/60.))
+    off_diagonal_indexer = np.where(~np.eye(flow1_kwargs['position'].shape[0],dtype=bool))
+    assert np.all(conflicts_between_multiple(flow2, flow2, t_lookahead=1)[off_diagonal_indexer])
+    # todo: finish
+    # assert np.alltrue(conflicts_between_multiple(flow1, flow2, t_lookahead=0.5) == np.array([[]]))

@@ -217,10 +217,12 @@ def conflict_between(own: Aircraft, intruder: Aircraft, t_lookahead=5./60):
         return False
 
 
-def conflicts_between_multiple(flow: Flow, t_lookahead=5. / 60):
-    x_rel = -(np.expand_dims(flow.position, 0) - np.expand_dims(flow.position, 1))
-    v_rel = np.expand_dims(flow.v, 0) - np.expand_dims(flow.v, 1)
-    both_active = np.expand_dims(flow.active, 0) & np.expand_dims(flow.active, 1)
+def conflicts_between_multiple(own: Flow, other: Flow = None, t_lookahead=5. / 60):
+    if other is None:
+        other = own
+    x_rel = -(np.expand_dims(own.position, 0) - np.expand_dims(other.position, 1))
+    v_rel = np.expand_dims(own.v, 0) - np.expand_dims(other.v, 1)
+    both_active = np.expand_dims(own.active, 0) & np.expand_dims(other.active, 1)
     x_v_inner = np.einsum('ijk,ijk->ij', x_rel, v_rel)
     v_rel_norm_sq = norm(v_rel, axis=2)**2
     x_rel_norm_sq = norm(x_rel, axis=2)**2
@@ -234,8 +236,8 @@ def conflicts_between_multiple(flow: Flow, t_lookahead=5. / 60):
         horizontal_conflict = (minimum_distance < Aircraft.horizontal_separation_requirement) \
                               & (t_out_hor > 0)\
                               & (t_in_hor < t_lookahead)
-    vs_rel_fph = -(np.expand_dims(flow.vs_fph, 0) - np.expand_dims(flow.vs_fph, 1))
-    alt_diff = np.expand_dims(flow.alt, 0) - np.expand_dims(flow.alt, 1)
+    vs_rel_fph = -(np.expand_dims(own.vs_fph, 0) - np.expand_dims(other.vs_fph, 1))
+    alt_diff = np.expand_dims(own.alt, 0) - np.expand_dims(other.alt, 1)
     with np.errstate(divide='ignore'):
         t_vertical_conflict = np.array([(alt_diff + Aircraft.vertical_separation_requirement)/vs_rel_fph,
                                         (alt_diff - Aircraft.vertical_separation_requirement)/vs_rel_fph])
@@ -248,6 +250,67 @@ def conflicts_between_multiple(flow: Flow, t_lookahead=5. / 60):
 
     return horizontal_conflict & (level_conflict | vertical_conflict) & both_active
 
+#
+#
+# import numba
+#
+#
+# @numba.njit(error_model='numpy', debug=True)
+# def conflict_between_numba(own, intruder, t_lookahead=5. / 60):
+#     both_active = (own.active & intruder.active)
+#     x_rel = (intruder.position - own.position).reshape((2,))
+#     v_rel = (own.v - intruder.v).reshape((2,))
+#
+#     t_horizontal_conflict = (np.dot(x_rel, v_rel) +
+#                              np.array((-1, 1)) * np.sqrt(
+#                 np.dot(x_rel, v_rel) ** 2 - norm(x_rel) ** 2 * norm(v_rel) ** 2 + norm(v_rel) ** 2
+#                 * own.horizontal_separation_requirement ** 2)
+#                              ) / (norm(v_rel) ** 2)
+#     t_cpa = np.sum(t_horizontal_conflict) / 2.
+#     minimum_distance = norm(t_cpa * v_rel - x_rel)
+#     t_in_hor, t_out_hor = min(t_horizontal_conflict), max(t_horizontal_conflict)
+#     horizontal_conflict = (minimum_distance < own.horizontal_separation_requirement) \
+#                           & (t_out_hor > 0) \
+#                           & (t_in_hor < t_lookahead)
+#
+#     vs_rel_fph = own.vs_fph - intruder.vs_fph
+#     alt_diff = intruder.alt - own.alt
+#
+#     # We have a horizontal conflict and we are flying level at conflicting altitudes, so we have a conflict
+#     level_conflict = (np.abs(vs_rel_fph) < 1e-8) & (np.abs(alt_diff) < own.vertical_separation_requirement)
+#
+#     t_vertical_conflict = (intruder.alt - own.alt + np.array((-1, 1)) * own.vertical_separation_requirement
+#                            ) / vs_rel_fph
+#     t_in_vert, t_out_vert = min(t_vertical_conflict), max(t_vertical_conflict)
+#
+#     t_in_combined = max(t_in_hor, t_in_vert)
+#     vertical_conflict = (t_in_combined < t_lookahead) & (t_out_vert > 0)
+#
+#     return horizontal_conflict & (level_conflict | vertical_conflict) & both_active
+
 
 if __name__ == "__main__":
-    pass
+    import numba
+    from collections import namedtuple
+
+    AircraftTuple = namedtuple('Aircraft',
+                               ('position', 'v', 'alt', 'vs_fph', 'active',
+                                'horizontal_separation_requirement', 'vertical_separation_requirement'))
+
+
+
+    pos = np.array([[0, 0], [10, 0], [5, 10], [5, 5]], dtype=Aircraft.dtype)
+    trk = np.array([90, 270, 180, 0], dtype=Aircraft.dtype)
+    gs = np.array([10, 10, 10, 5], dtype=Aircraft.dtype)
+    alt = np.array([2000, 1000, 2000, 2000], dtype=Aircraft.dtype)
+    vs = np.array([0, 1900 / 30., 0, 0], dtype=Aircraft.dtype)
+    callsign = np.array(['ac1', 'ac2', 'ac3', 'ac4'])
+    active = np.array([True, True, True, True], dtype=bool)
+    index = np.arange(4, dtype=int)
+    ac = [AircraftInFlow(i, pos, trk, gs, alt, vs, callsign, active) for i in index]
+    flow = Flow(pos, trk, gs, alt, vs, callsign, active)
+    for i, j in itertools.combinations_with_replacement(range(len(flow.aircraft)), 2):
+        ac1 = AircraftTuple(flow.aircraft[i].position, flow.aircraft[i].v, flow.aircraft[i].alt, flow.aircraft[i].vs_fph, flow.aircraft[i].active, Aircraft.horizontal_separation_requirement, Aircraft.vertical_separation_requirement)
+        ac2 = AircraftTuple(flow.aircraft[j].position, flow.aircraft[j].v, flow.aircraft[j].alt, flow.aircraft[j].vs_fph, flow.aircraft[j].active, Aircraft.horizontal_separation_requirement, Aircraft.vertical_separation_requirement)
+        print(conflict_between_numba(ac1, ac2))
+
