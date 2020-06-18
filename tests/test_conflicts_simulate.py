@@ -1,12 +1,13 @@
 import copy
 import logging
+from collections import OrderedDict
 
 import numpy as np
 import pytest
 from pint import UnitRegistry
 from pytest import approx
 
-from conflicts.simulate import Aircraft, SingleAircraft, Flow, AircraftInFlow
+from conflicts.simulate import Aircraft, SingleAircraft, Flow, AircraftInFlow, CombinedFlows
 from conflicts.simulate import conflict_between, conflicts_between_multiple
 
 ureg = UnitRegistry()
@@ -222,7 +223,8 @@ def test_conflicts_between_multiple(aircraft_on_collision):
             flow.deactivate('ac4')
         for step, t_lookahead in zip([0.0, 0.35, 0.1, 0.05, 0.16, 0.0],
                                      [5/60, .36, 5/60, 5/60, 5/60, 0.]):
-            individual_conflicts = np.array([[conflict_between(flow.aircraft[i], flow.aircraft[j], t_lookahead) for i in flow.index] for j in flow.index])
+            individual_conflicts = np.array([[conflict_between(flow.aircraft[i], flow.aircraft[j], t_lookahead)
+                                              for i in flow.index] for j in flow.index])
             combined_conflicts = conflicts_between_multiple(flow, t_lookahead=t_lookahead)
             assert np.alltrue(conflicts_between_multiple(flow, t_lookahead=t_lookahead) ==
                               conflicts_between_multiple(flow, copy.deepcopy(flow), t_lookahead=t_lookahead))
@@ -262,4 +264,52 @@ def test_flows_on_collision(flows_on_collision):
     flow1, flow2, flow1_kwargs, _ = copy.deepcopy(flows_on_collision)
     assert conflicts_between_multiple(flow1, flow2, t_lookahead=0.36).shape == (4, 3)
     assert ~np.any(conflicts_between_multiple(flow1, flow2, t_lookahead=0.34))
-    assert np.alltrue(conflicts_between_multiple(flow1, flow2, t_lookahead=0.36) == np.array([[True, False, False], [False, False, True], [False, True, False], [False, False, False]]))
+    out = np.zeros((4, 3), dtype=bool)
+    conflicts_between_multiple(flow1, flow2, t_lookahead=0.36, out=out)
+    assert np.alltrue(out == np.array([[True, False, False], [False, False, True],
+                                       [False, True, False], [False, False, False]]))
+
+
+def test_combined_flows(flows_on_collision, aircraft_on_collision):
+    flow1, flow2, flow1_kwargs, _ = copy.deepcopy(flows_on_collision)
+    flow3_args = copy.deepcopy(aircraft_on_collision)
+    flow3 = Flow(*flow3_args[:-2])
+    flows = OrderedDict()
+    flows['flow1'] = flow1
+    flows['flow2'] = flow2
+    flows['flow3'] = flow3
+    combined_flows = CombinedFlows(copy.deepcopy(flows))
+    assert list(combined_flows.flow_keys) == ['flow1', 'flow2', 'flow3']
+    assert list(combined_flows.flow_key_pairs) == [('flow1', 'flow2'), ('flow1', 'flow3'), ('flow2', 'flow3')]
+    current_conflict_state = combined_flows.current_conflict_state
+    assert list(current_conflict_state.keys()) == [('flow1', 'flow2'), ('flow1', 'flow3'), ('flow2', 'flow3'),
+                                                   'flow1', 'flow2', 'flow3']
+    assert current_conflict_state[('flow1', 'flow2')].shape == (4, 3)
+    assert current_conflict_state[('flow1', 'flow3')].shape == (4, 4)
+    assert current_conflict_state[('flow2', 'flow3')].shape == (3, 4)
+    assert np.alltrue(current_conflict_state[('flow1', 'flow2')] == conflicts_between_multiple(flow1, flow2))
+    assert np.alltrue(current_conflict_state[('flow1', 'flow3')] == conflicts_between_multiple(flow1, flow3))
+    assert np.alltrue(current_conflict_state[('flow2', 'flow3')] == conflicts_between_multiple(flow2, flow3))
+    assert np.alltrue(current_conflict_state['flow1'] == conflicts_between_multiple(flow1, None))
+    assert np.alltrue(current_conflict_state['flow2'] == conflicts_between_multiple(flow2, None))
+    assert np.alltrue(current_conflict_state['flow3'] == conflicts_between_multiple(flow3, None))
+    half_hour = 0.5 * 3600 * ureg.second
+    combined_flows.step(half_hour)
+    [flow.step(0.5) for _, flow in flows.items()]
+    assert flow1.position == approx(combined_flows.flows['flow1'].position)
+    assert flow2.position == approx(combined_flows.flows['flow2'].position)
+    assert flow3.position == approx(combined_flows.flows['flow3'].position)
+    assert np.alltrue(current_conflict_state[('flow1', 'flow3')] == conflicts_between_multiple(flow1, flow3))
+    assert np.alltrue(current_conflict_state[('flow2', 'flow3')] == conflicts_between_multiple(flow2, flow3))
+    assert np.alltrue(current_conflict_state[('flow2', 'flow3')] == conflicts_between_multiple(flow2, flow3))
+
+    assert np.alltrue(current_conflict_state['flow1'] == conflicts_between_multiple(flow1, None))
+    assert np.alltrue(current_conflict_state['flow2'] == conflicts_between_multiple(flow2, None))
+    assert np.alltrue(current_conflict_state['flow3'] == conflicts_between_multiple(flow3, None))
+
+    assert ~np.any(current_conflict_state['flow1'])
+    assert ~np.any(current_conflict_state['flow2'])
+    assert np.alltrue(current_conflict_state['flow3'] == np.array([[False, True,  False, False],
+                                                                   [True,  False, False, False],
+                                                                   [False, False, False, True],
+                                                                   [False, False, True,  False]]))

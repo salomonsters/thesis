@@ -1,5 +1,7 @@
+import copy
 import itertools
 import logging
+from collections import OrderedDict
 
 import numpy as np
 from numpy.linalg import norm
@@ -58,10 +60,15 @@ class Aircraft:
     def vs(self, vs):
         raise NotImplementedError()
 
-    def step(self, dt):
+    @staticmethod
+    def convert_dt(dt):
         if isinstance(dt, Quantity):
             dt = dt.to(ureg.hour).magnitude
-        dt = self.dtype(dt)
+        dt = Aircraft.dtype(dt)
+        return dt
+
+    def step(self, dt):
+        dt = self.convert_dt(dt)
         if self.active:
             self.position += self.v * dt
             self.alt += self.vs_fph * dt
@@ -149,6 +156,7 @@ class Flow:
         return self.activate(callsign, True)
 
     def step(self, dt):
+        dt = Aircraft.convert_dt(dt)
         self.position[self.active] += self.v[self.active] * dt
         self.alt[self.active] += self.vs_fph[self.active] * dt
         self._update_collisions_and_conflicts()
@@ -175,6 +183,32 @@ class Flow:
             if arg.shape[0] != n:
                 raise ValueError('Not all arguments have same first dimension')
         return n
+
+
+class CombinedFlows:
+    t_lookahead = 5/60
+
+    def __init__(self, flows: OrderedDict):
+        self.flows = copy.deepcopy(flows)
+        self.flow_keys = self.flows.keys()
+        self.flow_key_pairs = list(itertools.combinations(self.flow_keys, 2))
+        self.current_conflict_state = {
+            (flow_a, flow_b): np.zeros((self.flows[flow_a].n, self.flows[flow_b].n), dtype=bool)
+            for flow_a, flow_b in self.flow_key_pairs}
+        self.current_conflict_state.update({k: self.flows[k].conflicts for k in self.flow_keys})
+        self._update_conflicts()
+
+    def _update_conflicts(self):
+        for flow_a, flow_b in self.flow_key_pairs:
+            conflicts_between_multiple(self.flows[flow_a], self.flows[flow_b], t_lookahead=self.t_lookahead,
+                                       out=self.current_conflict_state[(flow_a, flow_b)])
+        # Inter-flow conflicts should be updated by the respective flows _update_collisions_and_conflicts
+
+    def step(self, dt):
+        dt = Aircraft.convert_dt(dt)
+        for k in self.flow_keys:
+            self.flows[k].step(dt)
+        self._update_conflicts()
 
 
 def conflict_between(own: Aircraft, intruder: Aircraft, t_lookahead=5./60):
@@ -217,7 +251,7 @@ def conflict_between(own: Aircraft, intruder: Aircraft, t_lookahead=5./60):
         return False
 
 
-def conflicts_between_multiple(own: Flow, other: Flow = None, t_lookahead=5. / 60):
+def conflicts_between_multiple(own: Flow, other: Flow=None, t_lookahead=5. / 60, out=None):
     if other is None:
         other = own
     x_rel = -(np.expand_dims(own.position, 1) - np.expand_dims(other.position, 0))
@@ -247,8 +281,10 @@ def conflicts_between_multiple(own: Flow, other: Flow = None, t_lookahead=5. / 6
         t_in_combined = np.max(np.array([t_in_hor, t_in_vert]), axis=0)
         vertical_conflict = (t_in_combined < t_lookahead) & (t_out_vert > 0)
     level_conflict = ((np.abs(vs_rel_fph) < 1e-8) & (np.abs(alt_diff) < Aircraft.vertical_separation_requirement))
-
-    return horizontal_conflict & (level_conflict | vertical_conflict) & both_active
+    if out is None:
+        return horizontal_conflict & (level_conflict | vertical_conflict) & both_active
+    else:
+        out[:, :] = horizontal_conflict & (level_conflict | vertical_conflict) & both_active
 
 #
 #
@@ -311,4 +347,3 @@ if __name__ == "__main__":
     flow1 = Flow(**flow1_kwargs)
     flow2 = Flow(**flow2_kwargs)
     print(conflicts_between_multiple(flow1, flow2, t_lookahead=7/20-0.01))
-
