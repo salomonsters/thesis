@@ -134,6 +134,7 @@ class Flow:
 
         self.collisions = np.empty((self.n, self.n), dtype=bool)
         self.conflicts = np.empty((self.n, self.n), dtype=bool)
+        self.active_conflicts = np.zeros(self.n, dtype=bool)
 
         self._calculate_active_aircraft_combinations()
         self._update_collisions_and_conflicts()
@@ -197,6 +198,7 @@ class Flow:
                 self.collisions[i, j] = self.collisions[j, i] = self.aircraft[i] & self.aircraft[j]
 
         self.conflicts[:, :] = conflicts_between_multiple(self, t_lookahead=self.t_lookahead)
+        self.active_conflicts[:] = self.conflicts.sum(axis=1)
 
     def _populate_callsign_map(self, callsign_list):
         for i, callsign in enumerate(callsign_list):
@@ -212,6 +214,16 @@ class Flow:
                 raise ValueError('Not all arguments have same first dimension')
         return n
 
+    def __getitem__(self, item):
+        if item == 'pos':
+           item = 'position'
+        try:
+            return self.__getattribute__(item)[self.active]
+        except IndexError:
+            return self.__getattribute__(item)
+        except AttributeError:
+            raise NotImplementedError('No getitem defined for item {}'.format(item))
+
 
 class CombinedFlows:
     t_lookahead = 5/60
@@ -223,6 +235,7 @@ class CombinedFlows:
         self.current_conflict_state = {
             (flow_a, flow_b): np.zeros((self.flows[flow_a].n, self.flows[flow_b].n), dtype=bool)
             for flow_a, flow_b in self.flow_key_pairs}
+        self.active_conflicts = {k: self.flows[k].active_conflicts for k in self.flow_keys}
         self.current_conflict_state.update({k: self.flows[k].conflicts for k in self.flow_keys})
         self._update_conflicts()
 
@@ -230,6 +243,8 @@ class CombinedFlows:
         for flow_a, flow_b in self.flow_key_pairs:
             conflicts_between_multiple(self.flows[flow_a], self.flows[flow_b], t_lookahead=self.t_lookahead,
                                        out=self.current_conflict_state[(flow_a, flow_b)])
+            self.active_conflicts[flow_a][:] = self.active_conflicts[flow_a] | self.current_conflict_state[(flow_a, flow_b)].sum(axis=1)
+            self.active_conflicts[flow_b][:] = self.active_conflicts[flow_b] | self.current_conflict_state[(flow_a, flow_b)].sum(axis=0)
         # Inter-flow conflicts should be updated by the respective flows _update_collisions_and_conflicts
 
     def step(self, dt):
@@ -237,6 +252,9 @@ class CombinedFlows:
         for k in self.flow_keys:
             self.flows[k].step(dt)
         self._update_conflicts()
+
+    def __getitem__(self, item):
+        return self.flows[item]
 
 
 def conflict_between(own: Aircraft, intruder: Aircraft, t_lookahead=5./60):
@@ -353,11 +371,12 @@ def conflicts_between_multiple(own: Flow, other: Flow=None, t_lookahead=5. / 60,
 #     return horizontal_conflict & (level_conflict | vertical_conflict) & both_active
 
 
+
 if __name__ == "__main__":
     flow0_kwargs = {
         'position': (-10, 0),
-        'trk': 90,
-        'gs': 80,
+        'trk': 120,
+        'gs': 40,
         'alt': 2000,
         'vs': 0,
         'callsign': ['flow_{0}_ac_{1}'.format(0, i) for i in range(100)],
@@ -365,13 +384,65 @@ if __name__ == "__main__":
     }
     flow1_kwargs = {
         'position': (0, -10),
-        'trk': 90,
-        'gs': 80,
-        'alt': 2000,
+        'trk': 45,
+        'gs': 40,
+        'alt': 1500,
         'vs': 0,
         'callsign': ['flow_{0}_ac_{1}'.format(1, i) for i in range(101)],
         'active': False,
     }
     flow1 = Flow.expand_properties(flow0_kwargs)
     flow2 = Flow.expand_properties(flow1_kwargs)
-    print(conflicts_between_multiple(flow1, flow2, t_lookahead=7/20-0.01))
+
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(10, 10))
+
+    flows = CombinedFlows(OrderedDict([('flow1', flow1), ('flow2', flow2)]))
+    plt.legend(list(flows.flow_keys))
+    t = 0.
+    dt = 5 / 3600.
+    i = 0
+    plt.ion()
+    xlim = [-11, 20]
+    ylim = [-11, 20]
+    x_axis_scale_in_units = np.diff(xlim).item()
+    y_axis_scale_in_units = np.diff(ylim).item()
+    bbox = ax.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
+    width, height = bbox.width, bbox.height
+    width *= x_axis_scale_in_units / fig.dpi
+    height *= y_axis_scale_in_units / fig.dpi
+
+    lw_no_conflict = 1 / width * x_axis_scale_in_units
+    lw_conflict = 3 / width * x_axis_scale_in_units
+
+    while t < 5:
+        plt.clf()
+        if i % 100 == 0:
+            next_callsign = flows['flow1'].callsign[~flows['flow1'].active][0]
+            flows['flow1'].activate(next_callsign)
+
+        elif i % 101 == 0:
+            next_callsign = flows['flow2'].callsign[~flows['flow2'].active][0]
+            flows['flow2'].activate(next_callsign)
+        if i % 10 == 0:
+
+            for flow_i, flow in enumerate(flows.flows):
+                active_conflicts = flows[flow]['active_conflicts']
+                plt.plot(flows[flow]['position'][active_conflicts][:, 0],
+                         flows[flow]['position'][active_conflicts][:, 1], lw=0, marker='o', fillstyle='none',
+                         c='C{}'.format(flow_i), markersize=lw_conflict)
+                plt.plot(flows[flow]['position'][~active_conflicts][:, 0],
+                         flows[flow]['position'][~active_conflicts][:, 1], lw=0, marker='o', fillstyle='none',
+                         c='C{}'.format(flow_i), markersize=lw_no_conflict)
+                plt.quiver(flows[flow]['position'][:, 0], flows[flow]['position'][:, 1],
+                           flows[flow]['v'][:, 0], flows[flow]['v'][:, 1], color='C{}'.format(flow_i),
+                           angles='xy', scale_units='xy', scale=1 / Flow.t_lookahead, width=0.001)
+
+            plt.xlim(xlim)
+            plt.ylim(ylim)
+            plt.pause(0.05)
+        flows.step(dt)
+
+        i += 1
+        t += dt

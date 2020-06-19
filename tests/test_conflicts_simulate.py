@@ -313,6 +313,17 @@ def test_combined_flows(flows_on_collision, aircraft_on_collision):
                                                                    [True,  False, False, False],
                                                                    [False, False, False, True],
                                                                    [False, False, True,  False]]))
+    assert ~np.any(flows['flow1'].active_conflicts)
+    assert ~np.any(flows['flow2'].active_conflicts)
+    assert np.alltrue(flows['flow3'].active_conflicts == np.array([True, True, True, True]))
+
+    assert np.alltrue(combined_flows.active_conflicts['flow1'] == np.array([True, True, True, False]))
+    assert np.alltrue(combined_flows.active_conflicts['flow1'] == combined_flows['flow1'].active_conflicts)
+    assert np.alltrue(combined_flows.active_conflicts['flow2'] == np.array([True, True, True]))
+    assert np.alltrue(combined_flows.active_conflicts['flow2'] == combined_flows['flow2'].active_conflicts)
+    assert np.alltrue(combined_flows.active_conflicts['flow3'] == np.array([True, True, True, True]))
+    assert np.alltrue(combined_flows.active_conflicts['flow3'] == combined_flows['flow3'].active_conflicts)
+
 
 
 def test_expand_properties():
