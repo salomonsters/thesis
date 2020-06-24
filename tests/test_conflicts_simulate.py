@@ -7,8 +7,8 @@ import pytest
 from pint import UnitRegistry
 from pytest import approx
 
-from conflicts.simulate import Aircraft, SingleAircraft, Flow, AircraftInFlow, CombinedFlows
-from conflicts.simulate import conflict_between, conflicts_between_multiple
+from conflicts.simulate import Aircraft, SingleAircraft, Flow, AircraftInFlow, CombinedFlows, Simulation
+from conflicts.simulate import conflict_between, conflicts_between_multiple, calculate_horizontal_conflict
 
 ureg = UnitRegistry()
 
@@ -175,7 +175,7 @@ def aircraft_on_collision():
 def test_flow_collision(aircraft_on_collision):
 
     pos, trk, gs, alt, vs, callsign, active, index, ac = copy.deepcopy(aircraft_on_collision)
-    flow = Flow(pos, trk, gs, alt, vs, callsign, active)
+    flow = Flow(pos, trk, gs, alt, vs, callsign, active, calculate_collisions=True)
     assert ~np.any(flow.collisions)
     flow.step(1.9 / 15)
     assert ~np.any(flow.collisions)
@@ -185,7 +185,7 @@ def test_flow_collision(aircraft_on_collision):
     assert ~np.any(flow.collisions)
     pos, trk, gs, alt, vs, callsign, active, index, ac = copy.deepcopy(aircraft_on_collision)
     active[3] = False
-    flow = Flow(pos, trk, gs, alt, vs, callsign, active)
+    flow = Flow(pos, trk, gs, alt, vs, callsign, active, calculate_collisions=True)
     flow.step(0.5)
     assert flow.collisions[0, 1] and flow.collisions[1, 0]
     assert np.sum(flow.collisions) == 2
@@ -299,8 +299,8 @@ def test_combined_flows(flows_on_collision, aircraft_on_collision):
     assert flow1.position == approx(combined_flows.flows['flow1'].position)
     assert flow2.position == approx(combined_flows.flows['flow2'].position)
     assert flow3.position == approx(combined_flows.flows['flow3'].position)
+    assert np.alltrue(current_conflict_state[('flow1', 'flow2')] == conflicts_between_multiple(flow1, flow2))
     assert np.alltrue(current_conflict_state[('flow1', 'flow3')] == conflicts_between_multiple(flow1, flow3))
-    assert np.alltrue(current_conflict_state[('flow2', 'flow3')] == conflicts_between_multiple(flow2, flow3))
     assert np.alltrue(current_conflict_state[('flow2', 'flow3')] == conflicts_between_multiple(flow2, flow3))
 
     assert np.alltrue(current_conflict_state['flow1'] == conflicts_between_multiple(flow1, None))
@@ -313,16 +313,52 @@ def test_combined_flows(flows_on_collision, aircraft_on_collision):
                                                                    [True,  False, False, False],
                                                                    [False, False, False, True],
                                                                    [False, False, True,  False]]))
-    assert ~np.any(flows['flow1'].active_conflicts)
-    assert ~np.any(flows['flow2'].active_conflicts)
-    assert np.alltrue(flows['flow3'].active_conflicts == np.array([True, True, True, True]))
+    assert ~np.any(flows['flow1'].within_flow_active_conflicts)
+    assert ~np.any(flows['flow2'].within_flow_active_conflicts)
+    assert np.alltrue(flows['flow3'].within_flow_active_conflicts == np.array([True, True, True, True]))
 
-    assert np.alltrue(combined_flows.active_conflicts['flow1'] == np.array([True, True, True, False]))
-    assert np.alltrue(combined_flows.active_conflicts['flow1'] == combined_flows['flow1'].active_conflicts)
-    assert np.alltrue(combined_flows.active_conflicts['flow2'] == np.array([True, True, True]))
-    assert np.alltrue(combined_flows.active_conflicts['flow2'] == combined_flows['flow2'].active_conflicts)
-    assert np.alltrue(combined_flows.active_conflicts['flow3'] == np.array([True, True, True, True]))
-    assert np.alltrue(combined_flows.active_conflicts['flow3'] == combined_flows['flow3'].active_conflicts)
+    assert np.alltrue(combined_flows.active_conflicts_within_flow_or_between_flows['flow1'] == np.array([True, True, True, False]))
+    assert np.alltrue(combined_flows.active_conflicts_within_flow_or_between_flows['flow2'] == np.array([True, True, True]))
+    assert np.alltrue(combined_flows.active_conflicts_within_flow_or_between_flows['flow3'] == np.array([True, True, True, True]))
+
+    assert np.alltrue(combined_flows['flow1'].all_conflicts == np.array([False, False, False, False]))
+    assert np.alltrue(combined_flows['flow2'].all_conflicts == np.array([False, False, False]))
+    assert np.alltrue(combined_flows['flow3'].all_conflicts == np.array([True, True, True, True]))
+
+    assert np.alltrue(combined_flows.all_conflicts[('flow1', 'flow2')] == np.array([[True, False, False],
+                                                                                    [False, False, True],
+                                                                                    [False, True, False],
+                                                                                    [False, False, False]]))
+    assert np.alltrue(combined_flows.all_conflicts[('flow1', 'flow3')] == np.array([[False, False, False, False],
+                                                                                    [False, False, False, False],
+                                                                                    [False, False, False, True],
+                                                                                    [False, False, False, False]]))
+
+    assert np.alltrue(combined_flows.all_conflicts[('flow2', 'flow3')] == np.array([[False, False, False, False],
+                                                                                    [False, False, False, True],
+                                                                                    [False, False, False, False]]))
+
+def test_simulation_results(flows_on_collision, aircraft_on_collision):
+    flow1, flow2, flow1_kwargs, _ = copy.deepcopy(flows_on_collision)
+    flow3_args = copy.deepcopy(aircraft_on_collision)
+    flow3 = Flow(*flow3_args[:-2])
+    flows = OrderedDict()
+    flows['flow1'] = flow1
+    flows['flow2'] = flow2
+    flows['flow3'] = flow3
+    combined_flows = CombinedFlows(copy.deepcopy(flows))
+    sim = Simulation(combined_flows, plot_frequency=None)
+    sim.simulate(20, 0.5)
+    assert sim.aggregated_conflicts == {
+        'flow1': 0,
+        'flow2': 0,
+        'flow3': 4,
+        ('flow1', 'flow2'): 3,
+        ('flow1', 'flow3'): 1,
+        ('flow2', 'flow3'): 1
+    }
+
+
 
 
 
@@ -375,3 +411,32 @@ def test_expand_properties():
     }
     with pytest.raises(ValueError):
         Flow.expand_properties(flow3_kwargs)
+
+
+def test_calculate_horizontal_conflict(flows_on_collision):
+    own, other, _, _ = copy.deepcopy(flows_on_collision)
+    x_rel = -(np.expand_dims(own.position, 1) - np.expand_dims(other.position, 0))
+    v_rel = np.expand_dims(own.v, 1) - np.expand_dims(other.v, 0)
+    x_v_inner = np.einsum('ijk,ijk->ij', x_rel, v_rel)
+    v_rel_norm_sq = np.einsum('ijk,ijk->ij', v_rel, v_rel)
+    x_rel_norm_sq = np.einsum('ijk,ijk->ij', x_rel, x_rel)
+    with np.errstate(invalid='ignore'):
+        t_horizontal_conflict = np.array([(x_v_inner + np.sqrt(
+            x_v_inner ** 2 - x_rel_norm_sq * v_rel_norm_sq + v_rel_norm_sq * Aircraft.horizontal_separation_requirement ** 2)) / v_rel_norm_sq,
+                                          (x_v_inner - np.sqrt(
+                                              x_v_inner ** 2 - x_rel_norm_sq * v_rel_norm_sq + v_rel_norm_sq * Aircraft.horizontal_separation_requirement ** 2)) / v_rel_norm_sq])
+        t_cpa = np.average(t_horizontal_conflict, axis=0)
+        tcpa_vrel = np.einsum('ij,ijk->ijk', t_cpa, v_rel)
+        minimum_distance = np.einsum('ijk,ijk->ij', tcpa_vrel, -x_rel)
+        t_in_hor = np.min(t_horizontal_conflict, axis=0)
+        t_out_hor = np.max(t_horizontal_conflict, axis=0)
+
+    t_in_hor_numba = np.zeros((own.n, other.n), dtype=Aircraft.dtype)
+    t_out_hor_numba = np.zeros((own.n, other.n), dtype=Aircraft.dtype)
+    minimum_distance_numba = np.zeros((own.n, other.n), dtype=Aircraft.dtype)
+    calculate_horizontal_conflict((own.n, other.n), own.position, other.position, own.v, other.v,
+                                  Aircraft.horizontal_separation_requirement ** 2,
+                                  t_in_hor_numba, t_out_hor_numba, minimum_distance_numba)
+    assert t_in_hor == approx(t_in_hor_numba, nan_ok=True)
+    assert t_out_hor == approx(t_out_hor_numba, nan_ok=True)
+    assert minimum_distance == approx(minimum_distance_numba, nan_ok=True)
