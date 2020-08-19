@@ -18,3 +18,6 @@ pytest
 descartes
 pint
 pyqt5
+openpyxl
+xlrd
+seaborn

@@ -1,10 +1,6 @@
 import numpy as np
-from numpy.random import default_rng
-import pandas as pd
-import bluesky_export
-from nl_airspace_def import eham_ctr, eham_ctr_centre
-from nl_airspace_helpers import parse_lat_lon
-import geopandas
+
+earth_r = 6371000  # m
 
 
 def generate_start_positions(target, radius, headings):
@@ -13,10 +9,17 @@ def generate_start_positions(target, radius, headings):
     y_start = target[1] - np.degrees(radius / earth_r * np.cos(bearings))
     return x_start, y_start
 
-earth_r = 6371000  # m
-target_x, target_y = parse_lat_lon(eham_ctr_centre)
+
 
 if __name__ == "__main__":
+    from numpy.random import default_rng
+    import pandas as pd
+    import bluesky_export
+    from nl_airspace_def import eham_ctr, eham_ctr_centre
+    from nl_airspace_helpers import parse_lat_lon
+
+    # import geopandas
+    target_x, target_y = parse_lat_lon(eham_ctr_centre)
     seed = 1337
     rg = default_rng(seed)
     n_aircraft = 40
