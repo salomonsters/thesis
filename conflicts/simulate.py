@@ -521,13 +521,20 @@ class Simulation:
         return aggregated_conflicts
 
 
+T_intended = 1 # hr
+V_exp = 100 # knots
+horizontal_distance_exp = 4.5 # nm
+n_aircraft_per_flow = 100
+
+radius = 20
+
 if __name__ == "__main__":
-    out_fn = 'data/simulated_conflicts/gs-80-100-120_trk-0-1-360_vs-0.xlsx'
+    out_fn = 'data/simulated_conflicts/poisson-gs-100_trk-0-1-360_vs-0.xlsx'
     f_simulation = 3600 // 10
-    f_plot = 3600 // 240
+    # f_plot = 3600 // 240
+    f_plot = None
     f_conflict = 3600 // 240
-    T_intended = 1 # hr
-    n_aircraft_per_flow = 100
+
     flows_kwargs = OrderedDict()
     flows_dict = OrderedDict()
 
@@ -543,8 +550,9 @@ if __name__ == "__main__":
     for trk in list(np.arange(0, 360, 2.5)):
         flow_name = 'trk_{}'.format(int(trk))
 
-        x0, y0 = generate_start_positions((0, 0), 20, trk)
-        gs = rg.choice([80, 100, 120], 1)[0]
+        x0, y0 = generate_start_positions((0, 0), radius, trk)
+        # gs = rg.choice([V_exp-20, V_exp, V_exp+20], 1)[0]
+        gs = V_exp
         flows_kwargs[flow_name] = {
             'position': (x0, y0),
             'trk': trk,
@@ -558,9 +566,16 @@ if __name__ == "__main__":
 
     flows = CombinedFlows(flows_dict)
 
-    def activators(self):
-        while True:
-            yield np.argwhere(self.rg.random(len(self.flows.flow_keys)) < n_aircraft_per_flow / (self.f_simulation * T_intended))
+    def activators(self, use_poisson=False):
+            if use_poisson:
+                while True:
+                    lam = V_exp/(horizontal_distance_exp * f_simulation)
+                    print("Lambda of poisson distribution: {}".format(lam))
+                    yield np.argwhere(self.rg.poisson(lam=lam, size=len(self.flows.flow_keys)))
+            else:
+                # TODO raise DeprecationWarning("Need to update to reflect lambda")
+                while True:
+                    yield np.argwhere(self.rg.random(len(self.flows.flow_keys)) < n_aircraft_per_flow / (self.f_simulation * T_intended))
 
     def stop_condition(obj: Simulation):
         while not np.all(obj.flow_exhausted):
@@ -576,7 +591,7 @@ if __name__ == "__main__":
     had_exception = False
     try:
         sim = Simulation(flows, True, plot_frequency=f_plot)
-        sim.activators = activators(sim)
+        sim.activators = activators(sim, use_poisson=True)
         sim.simulate(f_simulation, T_intended, conflict_frequency=f_conflict, stop_condition=stop_condition(sim))
         # sim.simulate(f_simulation, T)
     except:
