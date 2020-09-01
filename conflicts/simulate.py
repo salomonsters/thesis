@@ -529,8 +529,8 @@ n_aircraft_per_flow = 100
 radius = 20
 
 if __name__ == "__main__":
-    out_fn = 'data/simulated_conflicts/poisson-gs-100_trk-0-1-360_vs-0.xlsx'
-    f_simulation = 3600 // 10
+    out_fn = 'data/simulated_conflicts/poisson-f-3600-gs-100_trk-0-1-360_vs-0.xlsx'
+    f_simulation = 3600 // 1
     # f_plot = 3600 // 240
     f_plot = None
     f_conflict = 3600 // 240
@@ -568,9 +568,10 @@ if __name__ == "__main__":
 
     def activators(self, use_poisson=False):
             if use_poisson:
+                lam = V_exp / (horizontal_distance_exp * f_simulation)
+                print("Lambda of poisson distribution: {}".format(lam))
                 while True:
-                    lam = V_exp/(horizontal_distance_exp * f_simulation)
-                    print("Lambda of poisson distribution: {}".format(lam))
+
                     yield np.argwhere(self.rg.poisson(lam=lam, size=len(self.flows.flow_keys)))
             else:
                 # TODO raise DeprecationWarning("Need to update to reflect lambda")
