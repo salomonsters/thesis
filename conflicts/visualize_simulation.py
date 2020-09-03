@@ -1,7 +1,9 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import ast
 import numpy as np
+
 
 if __name__ == "__main__":
     filter = ''
@@ -27,7 +29,9 @@ if __name__ == "__main__":
     # plt.show()
 
     out_filenames = [# 'data/simulated_conflicts/poisson-gs-80-100-120_trk-0-1-360_vs-0.xlsx',
-                     'data/simulated_conflicts/poisson-f-3600-gs-100_trk-0-1-360_vs-0.xlsx'
+                    #  'data/simulated_conflicts/poisson-f-3600-gs-100_trk-0-1-360_vs-0.xlsx',
+                    # 'data/simulated_conflicts/poisson-choice-f-3600-gs-100_trk-0-1-360_vs-0.xlsx'
+                    'data/simulated_conflicts/poisson-nochoice-f-3600-gs-100_trk-0-1-360_vs-0.xlsx'
                      ]
     # T = 3
     fig, ax = plt.subplots(5, 1, figsize=(10,12))
@@ -36,17 +40,25 @@ if __name__ == "__main__":
     df_list = []
     for i, fn in enumerate(out_filenames):
         df = pd.read_excel(fn)
+        df = df[~pd.isna(df['flow2'])]
         df['fn'] = fn.split('/')[-1].split('.')[0]
         df['x'] = df['IV'] # + (df['gs'].astype(float) - 100)/20
         df['y_inv'] = 1/df['y']
         df['color'] = 'C' + (((df['gs'].astype(float) - 100)/20).astype(int)+1).astype(str)
+        df['other_properties'] = df['other_properties'].apply(ast.literal_eval)
+        df['other_properties_flow2'] = df['other_properties_flow2'].apply(ast.literal_eval)
+        # df['other_properties_flow2'] = df['other_properties_flow2'].apply(lambda x: ast.literal_eval if ~pd.isna(x) else defaultdict(lambda: np.nan))
+        # df[~pd.isna(df['other_properties_flow2'])]['other_properties_flow2'] = df[~pd.isna(df['other_properties_flow2'])]['other_properties_flow2'].apply(ast.literal_eval)
+        # df[ pd.isna(df['other_properties_flow2'])]['other_properties_flow2'] = defaultdict(lambda: np.nan)
         df_list.append(df)
     dfs = pd.concat(df_list)
+    # Only look at conflicts between flows:
+
     dfs['abs_trk_diff_in_rad'] = np.abs(np.radians((dfs['trk_flow2']-dfs['trk'] + 360)%360))
     dfs['Vr,h'] = (dfs['gs'] ** 2 + dfs['gs_flow2'] ** 2 - 2 * dfs['gs'] * dfs['gs_flow2'] * np.cos(
         dfs['abs_trk_diff_in_rad'])) ** 0.5
 
-    from conflicts.simulate import T_intended, n_aircraft_per_flow, radius, Aircraft, V_exp, horizontal_distance_exp
+    from conflicts.simulate import T_intended, n_aircraft_per_flow, radius, Aircraft, V_exp, horizontal_distance_exp, f_simulation
     def calculate_correction_factor(B1_exp, B2_exp):
         g = Aircraft.horizontal_separation_requirement
         h = Aircraft.vertical_separation_requirement
@@ -58,9 +70,12 @@ if __name__ == "__main__":
     T_exp = n_aircraft_per_flow * horizontal_distance_exp / V_exp
 
     dfs['conflictsph'] = dfs['y']/T_exp
-
-    B1_exp = horizontal_distance_exp
-    B2_exp = horizontal_distance_exp
+    dfs['lam'] = pd.json_normalize(dfs['other_properties'])['lam']
+    dfs['lam_flow2'] = pd.json_normalize(dfs['other_properties_flow2'])['lam']
+    B1_exp = V_exp / (dfs['lam'] * f_simulation)
+    B2_exp = V_exp / (dfs['lam_flow2'] * f_simulation)
+    # B1_exp = horizontal_distance_exp
+    # B2_exp = horizontal_distance_exp
 
     correction_factor = calculate_correction_factor(B1_exp, B2_exp)
 
@@ -103,7 +118,7 @@ if __name__ == "__main__":
         [(k, stats.ks_2samp(all_samples[k], dfs['observed/predicted']).pvalue) for k in all_samples.keys()],
         columns=['angle', 'p'])
     df_ks2['significantly_different_distribution_alpha_0.01'] = (df_ks2['p'] < 0.01).astype(int)
-    df_ks2.plot.scatter(x='angle', y='significantly_different_distribution_alpha_0.01', ax=ax4_twin)
+    # df_ks2.plot.scatter(x='angle', y='significantly_different_distribution_alpha_0.01', ax=ax4_twin)
     # plt.show()
 
 

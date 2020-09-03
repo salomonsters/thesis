@@ -1,5 +1,6 @@
 import copy
 import logging
+import numbers
 from collections import OrderedDict
 
 import numpy as np
@@ -405,12 +406,25 @@ def test_expand_properties():
     assert np.allclose(flow2.vs, 0*np.ones(100, dtype=Aircraft.dtype))
     assert np.alltrue(flow2.callsign == flow0_kwargs['callsign'])
     assert np.allclose(flow2.active, np.zeros(100, dtype=bool))
+    assert flow2.other_properties == dict()
     flow3_kwargs = {
         'position': 'abc',
         'callsign': ['flow_{0}_ac_{1}'.format(0, i) for i in range(100)],
     }
     with pytest.raises(ValueError):
         Flow.expand_properties(flow3_kwargs)
+
+    flow4_kwargs = copy.deepcopy(flow2_kwargs)
+    flow4_kwargs.update({'other_properties': {'lam': 0.1}})
+    flow4 = Flow.expand_properties(flow4_kwargs)
+    assert isinstance(flow4.other_properties, dict)
+    assert isinstance(flow4.other_properties['lam'], numbers.Number)
+
+    assert flow4.other_properties['lam'] == pytest.approx(0.1)
+
+
+
+
 
 
 def test_calculate_horizontal_conflict(flows_on_collision):

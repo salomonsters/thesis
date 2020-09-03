@@ -115,7 +115,7 @@ class Flow:
     callsign_map = None
     t_lookahead = 5./60.
 
-    def __init__(self, position, trk, gs, alt, vs, callsign, active, calculate_collisions=False):
+    def __init__(self, position, trk, gs, alt, vs, callsign, active, calculate_collisions=False, other_properties=None):
         self.n = self._check_dimensions_and_get_n(position, trk, gs, alt, vs, callsign, active)
         self.position = position
         self.trk = trk
@@ -146,6 +146,10 @@ class Flow:
 
         self.inactive_callsigns = iter(self.callsign[~self.active])
 
+        if other_properties is None:
+            self.other_properties = dict()
+        else:
+            self.other_properties = other_properties
 
     @classmethod
     def expand_properties(cls, kwargs: dict, n_from='callsign'):
@@ -169,6 +173,8 @@ class Flow:
                 if v.shape[0] != n:
                     raise ValueError("Incorrect first dimension for key {}: {}"
                                      " (should be {} based on {}".format(k, v.shape[0], n, n_from))
+                flow_kwargs[k] = v
+            elif k == 'other_properties':
                 flow_kwargs[k] = v
             else:
                 raise ValueError("Unsupported type for key {}: {}".format(k, type(v)))
@@ -525,12 +531,12 @@ T_intended = 1 # hr
 V_exp = 100 # knots
 horizontal_distance_exp = 4.5 # nm
 n_aircraft_per_flow = 100
+f_simulation = 3600 // 1
 
 radius = 20
 
 if __name__ == "__main__":
-    out_fn = 'data/simulated_conflicts/poisson-f-3600-gs-100_trk-0-1-360_vs-0.xlsx'
-    f_simulation = 3600 // 1
+    out_fn = 'data/simulated_conflicts/poisson-nochoice-f-3600-gs-100_trk-0-1-360_vs-0.xlsx'
     # f_plot = 3600 // 240
     f_plot = None
     f_conflict = 3600 // 240
@@ -547,6 +553,7 @@ if __name__ == "__main__":
 
     rg = np.random.default_rng()
 
+    flow_i = 0
     for trk in list(np.arange(0, 360, 2.5)):
         flow_name = 'trk_{}'.format(int(trk))
 
@@ -561,18 +568,38 @@ if __name__ == "__main__":
             'vs': 0,
             'callsign': ['flow_{0}_ac_{1}'.format(trk, i) for i in range(n_aircraft_per_flow)],
             'active': False,
+            'other_properties': {
+                # 'lam': (V_exp / (horizontal_distance_exp * f_simulation)) * (0.5*(flow_i % 2) + 0.75)
+                'lam': V_exp / (horizontal_distance_exp * f_simulation)
+            }
         }
         flows_dict[flow_name] = Flow.expand_properties(flows_kwargs[flow_name])
+        flow_i += 1
 
     flows = CombinedFlows(flows_dict)
 
     def activators(self, use_poisson=False):
             if use_poisson:
-                lam = V_exp / (horizontal_distance_exp * f_simulation)
-                print("Lambda of poisson distribution: {}".format(lam))
-                while True:
+                lam_values = OrderedDict()
+                # lam = 0.1
+                for flow_i, flow in enumerate(self.flows.flows):
+                    lam = self.flows[flow].other_properties['lam']
+                    if lam in lam_values.keys():
+                        lam_values[lam].append(flow_i)
+                    else:
+                        lam_values[lam] = [flow_i]
+                lam_values_inverse = {}
+                for k, v in lam_values.items():
+                    for x in v:
+                        lam_values_inverse[x] = k
+                lam_values_keys = list(lam_values)
+                selector = [lam_values_keys.index(lam_values_inverse[k]) for k in sorted(lam_values_inverse.keys())]
 
-                    yield np.argwhere(self.rg.poisson(lam=lam, size=len(self.flows.flow_keys)))
+                # print("Lambda of poisson distribution: {}".format(lam))
+                while True:
+                    yield np.argwhere(np.choose(selector, [self.rg.poisson(lam=lam, size=len(self.flows.flow_keys)) for lam in lam_values.keys()]))
+
+                    # yield np.argwhere(self.rg.poisson(lam=lam, size=len(self.flows.flow_keys)))
             else:
                 # TODO raise DeprecationWarning("Need to update to reflect lambda")
                 while True:
@@ -597,6 +624,7 @@ if __name__ == "__main__":
         # sim.simulate(f_simulation, T)
     except:
         had_exception = True
+        raise
     finally:
         if not had_exception or (had_exception and input("We had an exception, do you still want to save? Y/N").upper() == 'Y'):
 
