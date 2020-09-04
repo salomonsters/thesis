@@ -529,14 +529,14 @@ class Simulation:
 
 T_intended = 1 # hr
 V_exp = 100 # knots
-horizontal_distance_exp = 4.5 # nm
+horizontal_distance_exp = 8.5 # nm
 n_aircraft_per_flow = 100
 f_simulation = 3600 // 1
 
 radius = 20
 
 if __name__ == "__main__":
-    out_fn = 'data/simulated_conflicts/poisson-nochoice-f-3600-gs-100_trk-0-1-360_vs-0.xlsx'
+    out_fn = 'data/simulated_conflicts/poisson-nochoice-f-3600-gs-100_trk-0-1-360_vs-0-intended_sep-8nm.xlsx'
     # f_plot = 3600 // 240
     f_plot = None
     f_conflict = 3600 // 240

@@ -30,8 +30,9 @@ if __name__ == "__main__":
 
     out_filenames = [# 'data/simulated_conflicts/poisson-gs-80-100-120_trk-0-1-360_vs-0.xlsx',
                     #  'data/simulated_conflicts/poisson-f-3600-gs-100_trk-0-1-360_vs-0.xlsx',
-                    # 'data/simulated_conflicts/poisson-choice-f-3600-gs-100_trk-0-1-360_vs-0.xlsx'
-                    'data/simulated_conflicts/poisson-nochoice-f-3600-gs-100_trk-0-1-360_vs-0.xlsx'
+                    'data/simulated_conflicts/poisson-choice-f-3600-gs-100_trk-0-1-360_vs-0.xlsx'
+                    # 'data/simulated_conflicts/poisson-nochoice-f-3600-gs-100_trk-0-1-360_vs-0.xlsx'
+                    # 'data/simulated_conflicts/poisson-nochoice-f-3600-gs-100_trk-0-1-360_vs-0-intended_sep-8nm.xlsx'
                      ]
     # T = 3
     fig, ax = plt.subplots(5, 1, figsize=(10,12))
@@ -58,7 +59,7 @@ if __name__ == "__main__":
     dfs['Vr,h'] = (dfs['gs'] ** 2 + dfs['gs_flow2'] ** 2 - 2 * dfs['gs'] * dfs['gs_flow2'] * np.cos(
         dfs['abs_trk_diff_in_rad'])) ** 0.5
 
-    from conflicts.simulate import T_intended, n_aircraft_per_flow, radius, Aircraft, V_exp, horizontal_distance_exp, f_simulation
+    from conflicts.simulate import n_aircraft_per_flow, Aircraft, V_exp, horizontal_distance_exp, f_simulation
     def calculate_correction_factor(B1_exp, B2_exp):
         g = Aircraft.horizontal_separation_requirement
         h = Aircraft.vertical_separation_requirement
@@ -67,13 +68,13 @@ if __name__ == "__main__":
         # return 4 * g * h / (b * B1_exp * B2_exp)
         return 2 * g / ( B1_exp * B2_exp)
 
-    T_exp = n_aircraft_per_flow * horizontal_distance_exp / V_exp
+    # T_exp = n_aircraft_per_flow * horizontal_distance_exp / V_exp
 
-    dfs['conflictsph'] = dfs['y']/T_exp
+    dfs['conflictsph'] = dfs['y']# /T_exp
     dfs['lam'] = pd.json_normalize(dfs['other_properties'])['lam']
     dfs['lam_flow2'] = pd.json_normalize(dfs['other_properties_flow2'])['lam']
-    B1_exp = V_exp / (dfs['lam'] * f_simulation)
-    B2_exp = V_exp / (dfs['lam_flow2'] * f_simulation)
+    B1_exp = dfs['gs'] / (dfs['lam'] * f_simulation)
+    B2_exp = dfs['gs_flow2'] / (dfs['lam_flow2'] * f_simulation)
     # B1_exp = horizontal_distance_exp
     # B2_exp = horizontal_distance_exp
 
