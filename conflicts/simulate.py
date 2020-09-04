@@ -424,9 +424,9 @@ def conflicts_between_multiple(own: Flow, other: Flow=None, t_lookahead=5. / 60,
 class Simulation:
     t = 0.
     i = 0
-    T_intended = 0.
+    conflict_divisor = 1
 
-    def __init__(self, flows: CombinedFlows, activators=None, plot_frequency=None):
+    def __init__(self, flows: CombinedFlows, activators=None, plot_frequency=None, calculate_conflict_per_time_unit=False):
         self.flows = flows
         self.activators = activators
         # if activators is not None:
@@ -436,16 +436,19 @@ class Simulation:
         self.plot_frequency = plot_frequency
         self.rg = np.random.default_rng()
         self.flow_exhausted = [False for k in flows.flow_keys]
+        self.calculate_conflict_per_time_unit = calculate_conflict_per_time_unit
 
-    def simulate(self, f, T, conflict_frequency=None, stop_condition=None):
+    def simulate(self, f, T=None, conflict_frequency=None, stop_condition=None, T_conflict_window=None):
         dt = 1/f
-        self.T = T
         self.f_simulation = f
         if stop_condition is None:
-            def stop_condition_function(obj):
+            if T is None:
+                raise RuntimeError("Need to provide either stop_condition or T")
+
+            def stop_condition_function(obj, T_final):
                 while True:
-                    yield not (obj.t + dt < obj.T)
-            stop_condition = stop_condition_function(self)
+                    yield not (obj.t + dt < T_final)
+            stop_condition = stop_condition_function(self, T)
         if self.plot_frequency is not None:
             relative_plot_frequency = f // self.plot_frequency
             self.prepare_plot()
@@ -454,9 +457,18 @@ class Simulation:
         else:
             relative_conflict_frequency = 1
 
+        if T_conflict_window is None:
+            T_conflict_start = 0
+            T_conflict_end = np.inf
+        else:
+            T_conflict_start, T_conflict_end = T_conflict_window
+            self.conflict_divisor = T_conflict_end - T_conflict_start
+
         while not next(stop_condition):
             self.fire_activators()
-            self.flows.step(dt, update_conflicts=self.i % relative_conflict_frequency == 0)
+            update_conflicts = (self.i % relative_conflict_frequency == 0) & \
+                               (self.t >= T_conflict_start) & (self.t <= T_conflict_end)
+            self.flows.step(dt, update_conflicts=update_conflicts)
 
             if self.plot_frequency is not None and self.i % relative_plot_frequency == 0:
                 self.plot_in_loop()
@@ -513,8 +525,8 @@ class Simulation:
         plt.ylim(self.ylim)
         plt.legend()
         if self.t > 0:
-            progress = self.t / self.T
-            progress_divider = 1/self.lw_conflict
+            # progress = self.t / self.T
+            # progress_divider = 1/self.lw_conflict
             # title = int(progress // progress_divider) * '#' +int((1 - progress) // progress_divider )* '_'
             title = f"{self.t=}"
             plt.title(title)
@@ -522,21 +534,25 @@ class Simulation:
 
     @property
     def aggregated_conflicts(self):
-        aggregated_conflicts = {k: np.sum(self.flows[k].all_conflicts) for k in self.flows.flow_keys}
-        aggregated_conflicts.update({k: np.sum(self.flows.all_conflicts[k]) for k in self.flows.flow_key_pairs})
+        divisor = 1
+        if self.calculate_conflict_per_time_unit:
+            divisor = self.conflict_divisor
+        aggregated_conflicts = {k: np.sum(self.flows[k].all_conflicts)/divisor for k in self.flows.flow_keys}
+        aggregated_conflicts.update({k: np.sum(self.flows.all_conflicts[k])/divisor for k in self.flows.flow_key_pairs})
         return aggregated_conflicts
 
 
-T_intended = 1 # hr
 V_exp = 100 # knots
 horizontal_distance_exp = 8.5 # nm
 n_aircraft_per_flow = 100
 f_simulation = 3600 // 1
-
+T_conflict_window = [1, 5]
+conflict_divisor = T_conflict_window[1] - T_conflict_window[0]
+calculate_conflict_rate = True
 radius = 20
 
 if __name__ == "__main__":
-    out_fn = 'data/simulated_conflicts/poisson-nochoice-f-3600-gs-100_trk-0-1-360_vs-0-intended_sep-8nm.xlsx'
+    out_fn = 'data/simulated_conflicts/poisson-nochoice-f-3600-gs-100_trk-0-1-360_vs-0-intended_sep-8.5nm.xlsx'
     # f_plot = 3600 // 240
     f_plot = None
     f_conflict = 3600 // 240
@@ -570,7 +586,9 @@ if __name__ == "__main__":
             'active': False,
             'other_properties': {
                 # 'lam': (V_exp / (horizontal_distance_exp * f_simulation)) * (0.5*(flow_i % 2) + 0.75)
-                'lam': V_exp / (horizontal_distance_exp * f_simulation)
+                'lam': V_exp / (horizontal_distance_exp * f_simulation),
+                'conflict_divisor': conflict_divisor,
+                'conflict_rate_calculated': calculate_conflict_rate,
             }
         }
         flows_dict[flow_name] = Flow.expand_properties(flows_kwargs[flow_name])
@@ -601,9 +619,9 @@ if __name__ == "__main__":
 
                     # yield np.argwhere(self.rg.poisson(lam=lam, size=len(self.flows.flow_keys)))
             else:
-                # TODO raise DeprecationWarning("Need to update to reflect lambda")
-                while True:
-                    yield np.argwhere(self.rg.random(len(self.flows.flow_keys)) < n_aircraft_per_flow / (self.f_simulation * T_intended))
+                raise NotImplementedError("Only poisson currently supported")
+                # while True:
+                #     yield np.argwhere(self.rg.random(len(self.flows.flow_keys)) < n_aircraft_per_flow / (self.f_simulation * T_intended))
 
     def stop_condition(obj: Simulation):
         while not np.all(obj.flow_exhausted):
@@ -618,9 +636,9 @@ if __name__ == "__main__":
     # activators[:, 0] = True
     had_exception = False
     try:
-        sim = Simulation(flows, True, plot_frequency=f_plot)
+        sim = Simulation(flows, True, plot_frequency=f_plot, calculate_conflict_per_time_unit=calculate_conflict_rate)
         sim.activators = activators(sim, use_poisson=True)
-        sim.simulate(f_simulation, T_intended, conflict_frequency=f_conflict, stop_condition=stop_condition(sim))
+        sim.simulate(f_simulation, conflict_frequency=f_conflict, stop_condition=stop_condition(sim), T_conflict_window=[1, 3])
         # sim.simulate(f_simulation, T)
     except:
         had_exception = True

@@ -30,15 +30,17 @@ if __name__ == "__main__":
 
     out_filenames = [# 'data/simulated_conflicts/poisson-gs-80-100-120_trk-0-1-360_vs-0.xlsx',
                     #  'data/simulated_conflicts/poisson-f-3600-gs-100_trk-0-1-360_vs-0.xlsx',
-                    'data/simulated_conflicts/poisson-choice-f-3600-gs-100_trk-0-1-360_vs-0.xlsx'
+                    # 'data/simulated_conflicts/poisson-choice-f-3600-gs-100_trk-0-1-360_vs-0.xlsx'
                     # 'data/simulated_conflicts/poisson-nochoice-f-3600-gs-100_trk-0-1-360_vs-0.xlsx'
                     # 'data/simulated_conflicts/poisson-nochoice-f-3600-gs-100_trk-0-1-360_vs-0-intended_sep-8nm.xlsx'
+                    'data/simulated_conflicts/poisson-nochoice-f-3600-gs-100_trk-0-1-360_vs-0-intended_sep-8.5nm.xlsx'
                      ]
     # T = 3
     fig, ax = plt.subplots(5, 1, figsize=(10,12))
     # ax_twin = ax[0].twinx()
 
     df_list = []
+    f_simulation = None
     for i, fn in enumerate(out_filenames):
         df = pd.read_excel(fn)
         df = df[~pd.isna(df['flow2'])]
@@ -52,6 +54,14 @@ if __name__ == "__main__":
         # df[~pd.isna(df['other_properties_flow2'])]['other_properties_flow2'] = df[~pd.isna(df['other_properties_flow2'])]['other_properties_flow2'].apply(ast.literal_eval)
         # df[ pd.isna(df['other_properties_flow2'])]['other_properties_flow2'] = defaultdict(lambda: np.nan)
         df_list.append(df)
+        f = None
+        for k, part in enumerate(fn.split('-')):
+            if part == 'f':
+                f = fn.split('-')[k+1]
+        if f is None or (f_simulation is not None and f != f_simulation):
+            raise RuntimeError("We have no simulation frequency")
+        else:
+            f_simulation = float(f)
     dfs = pd.concat(df_list)
     # Only look at conflicts between flows:
 
@@ -59,7 +69,7 @@ if __name__ == "__main__":
     dfs['Vr,h'] = (dfs['gs'] ** 2 + dfs['gs_flow2'] ** 2 - 2 * dfs['gs'] * dfs['gs_flow2'] * np.cos(
         dfs['abs_trk_diff_in_rad'])) ** 0.5
 
-    from conflicts.simulate import n_aircraft_per_flow, Aircraft, V_exp, horizontal_distance_exp, f_simulation
+    from conflicts.simulate import Aircraft
     def calculate_correction_factor(B1_exp, B2_exp):
         g = Aircraft.horizontal_separation_requirement
         h = Aircraft.vertical_separation_requirement

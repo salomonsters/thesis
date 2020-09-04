@@ -6,10 +6,12 @@ from collections import OrderedDict
 import numpy as np
 import pytest
 from pint import UnitRegistry
-from pytest import approx
+# from pytest import approx
 
 from conflicts.simulate import Aircraft, SingleAircraft, Flow, AircraftInFlow, CombinedFlows, Simulation
 from conflicts.simulate import conflict_between, conflicts_between_multiple, calculate_horizontal_conflict
+from tests.extra_functions import approx_with_mapping_support as approx
+
 
 ureg = UnitRegistry()
 
@@ -360,7 +362,58 @@ def test_simulation_results(flows_on_collision, aircraft_on_collision):
     }
 
 
+def test_simulation_results_within_conflict_window(flows_on_collision, aircraft_on_collision):
+    flow1, flow2, flow1_kwargs, _ = copy.deepcopy(flows_on_collision)
+    flow3_args = copy.deepcopy(aircraft_on_collision)
+    flow3 = Flow(*flow3_args[:-2])
+    flows = OrderedDict()
 
+    flows['flow1'] = flow1
+    flows['flow2'] = flow2
+    flows['flow3'] = flow3
+    combined_flows = CombinedFlows(copy.deepcopy(flows))
+    sim = Simulation(combined_flows, plot_frequency=None, calculate_conflict_per_time_unit=True)
+    sim.simulate(20, 0.7, T_conflict_window=[0, 0.2])
+    assert sim.aggregated_conflicts == {
+        'flow1': 0,
+        'flow2': 0,
+        'flow3': 2/0.2,
+        ('flow1', 'flow2'): 0,
+        ('flow1', 'flow3'): 0,
+        ('flow2', 'flow3'): 0
+    }
+    sim.calculate_conflict_per_time_unit = False
+    assert sim.aggregated_conflicts == {
+        'flow1': 0,
+        'flow2': 0,
+        'flow3': 2,
+        ('flow1', 'flow2'): 0,
+        ('flow1', 'flow3'): 0,
+        ('flow2', 'flow3'): 0
+    }
+
+    combined_flows = CombinedFlows(copy.deepcopy(flows))
+    sim = Simulation(combined_flows, plot_frequency=None)
+    sim.simulate(20, 0.7, T_conflict_window=[0.48, 0.52])
+    assert sim.aggregated_conflicts == {
+        'flow1': 0,
+        'flow2': 0,
+        'flow3': 0,
+        ('flow1', 'flow2'): 3,
+        ('flow1', 'flow3'): 1,
+        ('flow2', 'flow3'): 1
+    }
+
+    sim.calculate_conflict_per_time_unit = True
+
+    assert sim.aggregated_conflicts == approx({
+        'flow1': 0,
+        'flow2': 0,
+        'flow3': 0,
+        ('flow1', 'flow2'): 3/0.04,
+        ('flow1', 'flow3'): 1/0.04,
+        ('flow2', 'flow3'): 1/0.04
+    })
 
 
 def test_expand_properties():
@@ -420,7 +473,7 @@ def test_expand_properties():
     assert isinstance(flow4.other_properties, dict)
     assert isinstance(flow4.other_properties['lam'], numbers.Number)
 
-    assert flow4.other_properties['lam'] == pytest.approx(0.1)
+    assert flow4.other_properties['lam'] == approx(0.1)
 
 
 
