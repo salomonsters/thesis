@@ -552,7 +552,7 @@ calculate_conflict_rate = True
 radius = 20
 
 if __name__ == "__main__":
-    out_fn = 'data/simulated_conflicts/poisson-nochoice-f-3600-gs-100_trk-0-1-360_vs-0-intended_sep-8.5nm.xlsx'
+    out_fn = 'data/simulated_conflicts/poisson-25percentdeviation-f-3600-gs-100_trk-0-1-360_vs-0-intended_sep-8.5nm.xlsx'
     # f_plot = 3600 // 240
     f_plot = None
     f_conflict = 3600 // 240
@@ -585,8 +585,8 @@ if __name__ == "__main__":
             'callsign': ['flow_{0}_ac_{1}'.format(trk, i) for i in range(n_aircraft_per_flow)],
             'active': False,
             'other_properties': {
-                # 'lam': (V_exp / (horizontal_distance_exp * f_simulation)) * (0.5*(flow_i % 2) + 0.75)
-                'lam': V_exp / (horizontal_distance_exp * f_simulation),
+                'lam': (V_exp / (horizontal_distance_exp * f_simulation)) * (0.5*(flow_i % 2) + 0.75),
+                # 'lam': V_exp / (horizontal_distance_exp * f_simulation),
                 'conflict_divisor': conflict_divisor,
                 'conflict_rate_calculated': calculate_conflict_rate,
             }
