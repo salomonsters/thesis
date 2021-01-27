@@ -1,11 +1,23 @@
+wheel
 numpy
 scipy
 pandas
-geopandas
+# shapely
+# gdal
+# fiona
+# pyproj
+# six
+# rtree
+# geopandas
 numba
 matplotlib
 scikit-learn
-contextily
-cudatoolkit=9.0
+# contextily
+# cudatoolkit==9.0
 pytest
 descartes
+pint
+pyqt5
+openpyxl
+xlrd
+seaborn
