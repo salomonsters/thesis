@@ -153,7 +153,7 @@ def parse_tma(s):
     }
 
 
-def add_basemap(ax, zoom, url='https://maps.wikimedia.org/osm-intl/tileZ/tileX/tileY.png', ll=False):
+def add_basemap(ax, zoom, url='https://maps.wikimedia.org/osm-intl/{z}/{x}/{y}.png', ll=False):
     """
     Adds basemap background to geometry. Make sure to convert geometry to epsg 3857 beforehand.
 
