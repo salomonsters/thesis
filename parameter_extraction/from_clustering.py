@@ -46,11 +46,11 @@ def medoid(a, axis=1, indexonly=False):
 
 
 def count_intersections(a, b):
-    if a == b:
+    if a['geometry'] == b['geometry']:
         return np.nan
-    if not a.intersects(b):
+    if not a['geometry'].intersects(b['geometry']):
         return 0
-    intersection = a.intersection(b)
+    intersection = a['geometry'].intersection(b['geometry'])
 
     if intersection.geom_type == 'Point':
         return 1
@@ -86,10 +86,12 @@ if __name__ == "__main__":
             # Stupid SettingWithCopyWarning
             assert np.all(cluster_points.loc[track_points.index[resampling_indices], 'index_along_track'] >= 0)
         points = cluster_points.query('index_along_track >= 0')
-        points_per_fid = points.set_index(['fid', 'index_along_track']).sort_index()[['x', 'y']].to_numpy().reshape(n_tracks, 200, 2)
+        points_per_fid = points.set_index(['fid', 'index_along_track']).sort_index()[['x', 'y', 'alt']].to_numpy().reshape(n_tracks, 200, 3)
         # plt.figure()
         # medoid_index = medoid(points_per_fid.reshape(n_tracks, -1), axis=0, indexonly=True)
-        mean = points_per_fid.reshape(n_tracks, -1).mean(axis=0).reshape(200, 2)
+        mean = points_per_fid.reshape(n_tracks, -1).mean(axis=0).reshape(n_data_points, 3)
+        mean_2d_track = mean[:, :2]
+        mean_alt = mean[:, 2]
         # for i, trajectory in enumerate(points_per_fid):
         #     if i == medoid_index:
         #         plt.scatter(trajectory[:, 0], trajectory[:, 1], s=10, c='blue', label='Medoid')
@@ -99,20 +101,24 @@ if __name__ == "__main__":
         # plt.legend()
         # plt.show()
 
-        rows.append((cluster, n_tracks, LineString(mean)))
+        rows.append((cluster, n_tracks, LineString(mean), mean_2d_track, mean_alt))
 
         # plt.figure()
         # points.plot.scatter(y='index_along_track', x='gs', s=0.01)
         # plt.show()
 
-    gdf = geopandas.GeoDataFrame.from_records(rows, columns=['cluster', 'n_tracks', 'mean_track'])
-    intersection_map = np.array([[left.intersects(right) for left in gdf['mean_track']] for right in gdf['mean_track']])
-    intersection_heatmap = np.array([[count_intersections(left, right) for left in gdf['mean_track']] for right in gdf['mean_track']])
+    gdf = geopandas.GeoDataFrame.from_records(rows, columns=['cluster', 'n_tracks', 'geometry', 'mean_track', 'mean_alt'])
+    intersection_map = np.array([[left.intersects(right) for left in gdf['geometry']] for right in gdf['geometry']])
+    intersection_heatmap = np.array([[count_intersections(left, right) for _, left in gdf.iterrows()] for _, right in gdf.iterrows()])
 
     if plot_intersection_heatmap:
-        import searborn as sns
+        import seaborn as sns
         ax = sns.heatmap(intersection_heatmap / 200 * 100, cbar_kws={"label": "%"})
         ax.set_title("% intra-cluster trajectory points intersecting per cluster pair")
 
         plt.show()
 
+
+
+    # Todo tue: use high-overlap clusters to find method to find location/properties of intersection
+    # Perhaps: identify consecutive points and use middle? And find non-intersecting points?

@@ -21,4 +21,3 @@ pyqt5
 openpyxl
 xlrd
 seaborn
-hdmedians

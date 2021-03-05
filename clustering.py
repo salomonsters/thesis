@@ -371,7 +371,7 @@ if __name__ == "__main__":
     min_cluster_size = 3
     n_data_points = 200
     fields = ['lat', 'lon']
-    K = 6
+    K = 8
     plot_individual_clusters = True
     use_plot_titles = True
     show_plots = True
