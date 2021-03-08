@@ -145,6 +145,7 @@ class Flow:
         self._update_collisions_and_conflicts()
 
         self.inactive_callsigns = iter(self.callsign[~self.active])
+        self.previous_activated_callsign = None
 
         if other_properties is None:
             self.other_properties = dict()
@@ -192,6 +193,7 @@ class Flow:
             if self.active[self.callsign_map[callsign]]:
                 logging.warning("Aircraft {} was already active".format(callsign))
             self.active[self.callsign_map[callsign]] = True
+            self.previous_activated_callsign = callsign
         self._calculate_active_aircraft_combinations()
         self._update_collisions_and_conflicts()
 
@@ -246,7 +248,8 @@ class CombinedFlows:
     t_lookahead = 5/60
 
     def __init__(self, flows: OrderedDict):
-        self.flows = copy.deepcopy(flows)
+        # self.flows = copy.deepcopy(flows)
+        self.flows = flows
         self.flow_keys = list(self.flows.keys())
         self.flow_key_pairs = list(itertools.combinations(self.flow_keys, 2))
         self.current_conflict_state = {
@@ -480,7 +483,9 @@ class Simulation:
         if self.activators is not None:
             flows_to_activate = next(self.activators)
             for flow_i in flows_to_activate.reshape((-1,)):
-                k = self.flows.flow_keys[flow_i]
+                # k = self.flows.flow_keys[flow_i]
+                if flow_i == -1:
+                    continue
                 if not self.flow_exhausted[flow_i]:
                     try:
                         callsign = next(self.flows.flows[self.flows.flow_keys[flow_i]].inactive_callsigns)
@@ -488,7 +493,14 @@ class Simulation:
                     except StopIteration:
                         print("At T={:>.4f}: Couldn't fire flow {}: all aircraft are active".format(self.t, flow_i))
                         self.flow_exhausted[flow_i] = True
-                        break
+                        continue
+
+                    previous_callsign = self.flows[self.flows.flow_keys[flow_i]].previous_activated_callsign
+                    if previous_callsign is not None and 'measured_distances_at_spawn' in self.flows[self.flows.flow_keys[flow_i]].other_properties:
+                        previous_callsign_i = self.flows[self.flows.flow_keys[flow_i]].callsign_map[previous_callsign]
+
+                        x_rel = self.flows[self.flows.flow_keys[flow_i]].position[previous_callsign_i] - self.flows[self.flows.flow_keys[flow_i]].position[previous_callsign_i+1]
+                        self.flows[self.flows.flow_keys[flow_i]].other_properties['measured_distances_at_spawn'][previous_callsign_i + 1] = np.linalg.norm(x_rel)
                     self.flows[self.flows.flow_keys[flow_i]].activate(callsign)
 
 
@@ -552,7 +564,8 @@ calculate_conflict_rate = True
 radius = 20
 
 if __name__ == "__main__":
-    out_fn = 'data/simulated_conflicts/poisson-25percentdeviation-f-3600-gs-100_trk-0-1-360_vs-0-intended_sep-8.5nm.xlsx'
+    # out_fn = 'data/simulated_conflicts/poisson-25percentdeviation-f-3600-gs-100_trk-0-1-360_vs-0-intended_sep-8.5nm-measured-spawndistances.xlsx'
+    out_fn = 'data/simulated_conflicts/poisson-f-3600-gs-100_trk-0-1-360_vs-0.xlsx'
     # f_plot = 3600 // 240
     f_plot = None
     f_conflict = 3600 // 240
@@ -585,10 +598,11 @@ if __name__ == "__main__":
             'callsign': ['flow_{0}_ac_{1}'.format(trk, i) for i in range(n_aircraft_per_flow)],
             'active': False,
             'other_properties': {
-                'lam': (V_exp / (horizontal_distance_exp * f_simulation)) * (0.5*(flow_i % 2) + 0.75),
-                # 'lam': V_exp / (horizontal_distance_exp * f_simulation),
+                # 'lam': (V_exp / (horizontal_distance_exp * f_simulation)) * (0.5*(flow_i % 2) + 0.75),
+                'lam': V_exp / (horizontal_distance_exp * f_simulation),
                 'conflict_divisor': conflict_divisor,
                 'conflict_rate_calculated': calculate_conflict_rate,
+                'measured_distances_at_spawn': np.zeros((n_aircraft_per_flow, ), dtype=float),
             }
         }
         flows_dict[flow_name] = Flow.expand_properties(flows_kwargs[flow_name])

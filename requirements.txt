@@ -21,3 +21,4 @@ pyqt5
 openpyxl
 xlrd
 seaborn
+statsmodels
