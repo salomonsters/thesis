@@ -554,18 +554,18 @@ class Simulation:
         return aggregated_conflicts
 
 
-V_exp = 100 # knots
+V_exp = 200 # knots
 horizontal_distance_exp = 8.5 # nm
 n_aircraft_per_flow = 100
 f_simulation = 3600 // 1
-T_conflict_window = [1, 5]
-conflict_divisor = T_conflict_window[1] - T_conflict_window[0]
+T_conflict_window = [1, 3]
+# conflict_divisor = T_conflict_window[1] - T_conflict_window[0]
 calculate_conflict_rate = True
 radius = 20
 
 if __name__ == "__main__":
     # out_fn = 'data/simulated_conflicts/poisson-25percentdeviation-f-3600-gs-100_trk-0-1-360_vs-0-intended_sep-8.5nm-measured-spawndistances.xlsx'
-    out_fn = 'data/simulated_conflicts/poisson-f-3600-gs-100_trk-0-1-360_vs-0.xlsx'
+    out_fn = 'data/simulated_conflicts/poisson-f-3600-gs-200-10-400_trk-0-30-120_vs-0-lam_based_on_V_exp_200-realisation-2.xlsx'
     # f_plot = 3600 // 240
     f_plot = None
     f_conflict = 3600 // 240
@@ -583,30 +583,32 @@ if __name__ == "__main__":
     rg = np.random.default_rng()
 
     flow_i = 0
-    for trk in list(np.arange(0, 360, 2.5)):
-        flow_name = 'trk_{}'.format(int(trk))
+    for trk in (0, 30, 60, 90, 120):
+        for gs in list(np.arange(200, 400, 10)):
+            flow_name = 'trk_{}_gs_{}'.format(int(trk), int(gs))
 
-        x0, y0 = generate_start_positions((0, 0), radius, trk)
-        # gs = rg.choice([V_exp-20, V_exp, V_exp+20], 1)[0]
-        gs = V_exp
-        flows_kwargs[flow_name] = {
-            'position': (x0, y0),
-            'trk': trk,
-            'gs': gs,
-            'alt': 2000,
-            'vs': 0,
-            'callsign': ['flow_{0}_ac_{1}'.format(trk, i) for i in range(n_aircraft_per_flow)],
-            'active': False,
-            'other_properties': {
-                # 'lam': (V_exp / (horizontal_distance_exp * f_simulation)) * (0.5*(flow_i % 2) + 0.75),
-                'lam': V_exp / (horizontal_distance_exp * f_simulation),
-                'conflict_divisor': conflict_divisor,
-                'conflict_rate_calculated': calculate_conflict_rate,
-                'measured_distances_at_spawn': np.zeros((n_aircraft_per_flow, ), dtype=float),
+            x0, y0 = generate_start_positions((0, 0), radius, trk)
+            # gs = rg.choice([V_exp-20, V_exp, V_exp+20], 1)[0]
+            # gs = V_exp
+            flows_kwargs[flow_name] = {
+                'position': (x0, y0),
+                'trk': trk,
+                'gs': gs,
+                'alt': 2000,
+                'vs': 0,
+                'callsign': ['flow_{0}_ac_{1}'.format(trk, i) for i in range(n_aircraft_per_flow)],
+                'active': False,
+                'other_properties': {
+                    # 'lam': (V_exp / (horizontal_distance_exp * f_simulation)) * (0.5*(flow_i % 2) + 0.75),
+                    'lam': V_exp / (horizontal_distance_exp * f_simulation),
+                    # 'conflict_divisor': conflict_divisor,
+                    'conflict_rate_calculated': calculate_conflict_rate,
+                    'measured_distances_at_spawn': np.zeros((n_aircraft_per_flow, ), dtype=float),
+                    'IV': 'gs',
+                }
             }
-        }
-        flows_dict[flow_name] = Flow.expand_properties(flows_kwargs[flow_name])
-        flow_i += 1
+            flows_dict[flow_name] = Flow.expand_properties(flows_kwargs[flow_name])
+            flow_i += 1
 
     flows = CombinedFlows(flows_dict)
 
@@ -652,7 +654,7 @@ if __name__ == "__main__":
     try:
         sim = Simulation(flows, True, plot_frequency=f_plot, calculate_conflict_per_time_unit=calculate_conflict_rate)
         sim.activators = activators(sim, use_poisson=True)
-        sim.simulate(f_simulation, conflict_frequency=f_conflict, stop_condition=stop_condition(sim), T_conflict_window=[1, 3])
+        sim.simulate(f_simulation, conflict_frequency=f_conflict, stop_condition=stop_condition(sim), T_conflict_window=T_conflict_window)
         # sim.simulate(f_simulation, T)
     except:
         had_exception = True
@@ -671,8 +673,8 @@ if __name__ == "__main__":
             df2_columns.remove('active')
             df2 = df2[df2_columns]
             df_joined = df.join(df2, on='flow1', rsuffix='_flow1').join(df2, on='flow2', rsuffix='_flow2')
-            df_joined['IV'] = np.abs(np.mod(df_joined['trk_flow2'] - df_joined['trk'], 360))
-            df_joined['IV'][df_joined['IV'] > 180] = 360 - df_joined['IV'][df_joined['IV'] > 180]
+            # df_joined['IV'] = np.abs(np.mod(df_joined['trk_flow2'] - df_joined['trk'], 360))
+            # df_joined['IV'][df_joined['IV'] > 180] = 360 - df_joined['IV'][df_joined['IV'] > 180]
             df_joined['y'] = df_joined['conflicts']
             with pd.ExcelWriter(out_fn) as writer:
 
