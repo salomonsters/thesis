@@ -42,7 +42,8 @@ if __name__ == "__main__":
        # 'data/simulated_conflicts/poisson-f-3600-gs-100-5-200_trk-0-30-120_vs-0-lam_based_on_V_exp_200.xlsx',
        #  'data/simulated_conflicts/poisson-f-3600-gs-200-10-400_trk-0-30-120_vs-0-lam_based_on_V_exp_200.xlsx',
        # 'data/simulated_conflicts/poisson-f-3600-gs-200-10-400_trk-0-30-120_vs-0-lam_based_on_V_exp_200-realisation-2.xlsx',
-        'data/simulated_conflicts/poisson-f-3600-gs-200-10-400_trk-0-30-120_vs-0-lam_based_on_V_exp_200-S_h-5nm.xlsx'
+       # 'data/simulated_conflicts/poisson-f-3600-gs-200-10-400_trk-0-30-120_vs-0-lam_based_on_V_exp_200-S_h-5nm.xlsx',
+        'data/simulated_conflicts/poisson-f-3600-gs-200_trk-0-30-120_vs-0-lam--1e-3--1e-3--1e-2.xlsx'
                      ]
     # T = 3
     # ax_twin = ax[0].twinx()
@@ -74,6 +75,16 @@ if __name__ == "__main__":
                 df['x'] = np.abs(df[IV] - df[IV + '_flow2'])
                 IV_query = 'trk_diff>1'
                 IV_fancy_name = 'Groundspeed difference (kts)'
+            elif IV == 'lam':
+                df['trk_diff_uncorrected'] = np.abs(np.mod(df['trk_flow2'] - df['trk'], 360))
+                df['trk_diff'] = np.where(df['trk_diff_uncorrected'] > 180, 360 - df['trk_diff_uncorrected'],
+                                          df['trk_diff_uncorrected'])
+                df['lam'] = pd.json_normalize(df['other_properties'])['lam']
+                df['lam_flow2'] = pd.json_normalize(df['other_properties_flow2'])['lam']
+
+                df['x'] = df['lam_flow2']#.apply(lambda x: str(round(x,3))) #+ ', ' + df['lam_flow2'].apply(lambda x: str(round(x,8)))
+                IV_fancy_name = 'Spawn rate lambda pair [aircraft/hr]'
+
             else:
                 raise NotImplementedError()
 

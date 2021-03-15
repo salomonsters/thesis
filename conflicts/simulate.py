@@ -565,7 +565,7 @@ radius = 20
 
 if __name__ == "__main__":
     # out_fn = 'data/simulated_conflicts/poisson-25percentdeviation-f-3600-gs-100_trk-0-1-360_vs-0-intended_sep-8.5nm-measured-spawndistances.xlsx'
-    out_fn = 'data/simulated_conflicts/poisson-f-3600-gs-200-10-400_trk-0-30-120_vs-0-lam_based_on_V_exp_200.xlsx'
+    out_fn = 'data/simulated_conflicts/poisson-f-3600-gs-200_trk-0-30-120_vs-0-lam--1e-3--1e-3--1e-2.xlsx'
     # f_plot = 3600 // 240
     f_plot = None
     f_conflict = 3600 // 240
@@ -583,9 +583,10 @@ if __name__ == "__main__":
     rg = np.random.default_rng()
 
     flow_i = 0
+    gs = V_exp
     for trk in (0, 30, 60, 90, 120):
-        for gs in list(np.arange(200, 400, 10)):
-            flow_name = 'trk_{}_gs_{}'.format(int(trk), int(gs))
+        for lam in list(np.arange(0.001, 0.01, 0.001)):
+            flow_name = 'trk_{}_lam_{:.4f}'.format(int(trk), lam)
 
             x0, y0 = generate_start_positions((0, 0), radius, trk)
             # gs = rg.choice([V_exp-20, V_exp, V_exp+20], 1)[0]
@@ -600,11 +601,11 @@ if __name__ == "__main__":
                 'active': False,
                 'other_properties': {
                     # 'lam': (V_exp / (horizontal_distance_exp * f_simulation)) * (0.5*(flow_i % 2) + 0.75),
-                    'lam': V_exp / (horizontal_distance_exp * f_simulation),
+                    'lam': lam,
                     # 'conflict_divisor': conflict_divisor,
                     'conflict_rate_calculated': calculate_conflict_rate,
                     'measured_distances_at_spawn': np.zeros((n_aircraft_per_flow, ), dtype=float),
-                    'IV': 'gs',
+                    'IV': 'lam',
                     'S_h': Aircraft.horizontal_separation_requirement,
                 }
             }
