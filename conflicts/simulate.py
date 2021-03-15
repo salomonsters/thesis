@@ -565,8 +565,7 @@ radius = 20
 
 if __name__ == "__main__":
     # out_fn = 'data/simulated_conflicts/poisson-25percentdeviation-f-3600-gs-100_trk-0-1-360_vs-0-intended_sep-8.5nm-measured-spawndistances.xlsx'
-    out_fn = 'data/simulated_conflicts/poisson-f-3600-gs-200-10-400_trk-0-30-120_vs-0-lam_based_on_V_exp_200-S_h-5nm.xlsx'
-    Aircraft.horizontal_separation_requirement = 5
+    out_fn = 'data/simulated_conflicts/poisson-f-3600-gs-200-10-400_trk-0-30-120_vs-0-lam_based_on_V_exp_200.xlsx'
     # f_plot = 3600 // 240
     f_plot = None
     f_conflict = 3600 // 240
@@ -606,7 +605,7 @@ if __name__ == "__main__":
                     'conflict_rate_calculated': calculate_conflict_rate,
                     'measured_distances_at_spawn': np.zeros((n_aircraft_per_flow, ), dtype=float),
                     'IV': 'gs',
-                    'S_h': 5,
+                    'S_h': Aircraft.horizontal_separation_requirement,
                 }
             }
             flows_dict[flow_name] = Flow.expand_properties(flows_kwargs[flow_name])
