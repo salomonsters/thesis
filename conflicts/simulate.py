@@ -467,7 +467,7 @@ class Simulation:
             T_conflict_start, T_conflict_end = T_conflict_window
             self.conflict_divisor = T_conflict_end - T_conflict_start
 
-        while not next(stop_condition):
+        while not next(stop_condition) and self.t < T_conflict_end:
             self.fire_activators()
             update_conflicts = (self.i % relative_conflict_frequency == 0) & \
                                (self.t >= T_conflict_start) & (self.t <= T_conflict_end)

@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import ast
 import numpy as np
+import matplotlib.ticker as ticker
 
 from conflicts.simulate import Aircraft
 
@@ -52,8 +53,10 @@ if __name__ == "__main__":
     from numpy import array
     for i, fn in enumerate(out_filenames):
         IV_query = None
+        IV_plot_callback = lambda fig, ax: None
         df = pd.read_excel(fn)
         df = df[~pd.isna(df['flow2'])]
+        df.reset_index(inplace=True, drop=True)
         df['fn'] = fn.split('/')[-1].split('.')[0]
         df['other_properties'] = df['other_properties'].str.replace('\n', '').str.replace('array([', '[',
                                                                                           regex=False).str.replace('])',
@@ -81,6 +84,8 @@ if __name__ == "__main__":
             IV = 'trk_diff'
             IV_query = 'abs_sin_rad_trk_diff>0.01'
             IV_fancy_name = 'Angle between flows (degree)'
+            IV_plot_callback = lambda fig, ax: ax[4].xaxis.set_major_locator(ticker.MultipleLocator(10))
+
 
         if 'S_h' in df['other_properties'].iloc[0]:
             df['S_h'] = df['other_properties'].iloc[0]['S_h']
@@ -102,7 +107,7 @@ if __name__ == "__main__":
             raise RuntimeError("We have no simulation frequency")
         else:
             f_simulation = float(f)
-    dfs = pd.concat(df_list)# .reset_index(drop=True)
+    dfs = pd.concat(df_list).reset_index(drop=True)
 
     # Only look at conflicts between flows:
 
@@ -167,8 +172,7 @@ if __name__ == "__main__":
         ax[4].set_title('')
         ax[4].set_ylabel('observed/predicted')
         ax[4].set_xlabel(IV_fancy_name)
-        import matplotlib.ticker as ticker
-        ax[4].xaxis.set_major_locator(ticker.MultipleLocator(10))
+        IV_plot_callback(fig, ax)
         # dfs.boxplot sets the figure title but we do not want that
         fig.suptitle('')
 
