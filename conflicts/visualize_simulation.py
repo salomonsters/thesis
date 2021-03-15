@@ -4,6 +4,7 @@ import seaborn as sns
 import ast
 import numpy as np
 
+from conflicts.simulate import Aircraft
 
 if __name__ == "__main__":
     filter = ''
@@ -38,11 +39,13 @@ if __name__ == "__main__":
         # 'data/simulated_conflicts/poisson-25percentdeviation-f-3600-gs-100_trk-0-1-360_vs-0-intended_sep-8.5nm-measured-spawndistances.xlsx'
        # 'data/simulated_conflicts/poisson-f-3600-gs-100-5-200_trk-0-30-120_vs-0.xlsx',
        # 'data/simulated_conflicts/poisson-f-3600-gs-100-5-200_trk-0-30-120_vs-0-lam_based_on_V_exp_200.xlsx',
-        'data/simulated_conflicts/poisson-f-3600-gs-200-10-400_trk-0-30-120_vs-0-lam_based_on_V_exp_200.xlsx',
-        'data/simulated_conflicts/poisson-f-3600-gs-200-10-400_trk-0-30-120_vs-0-lam_based_on_V_exp_200-realisation-2.xlsx'
+       #  'data/simulated_conflicts/poisson-f-3600-gs-200-10-400_trk-0-30-120_vs-0-lam_based_on_V_exp_200.xlsx',
+       # 'data/simulated_conflicts/poisson-f-3600-gs-200-10-400_trk-0-30-120_vs-0-lam_based_on_V_exp_200-realisation-2.xlsx',
+        'data/simulated_conflicts/poisson-f-3600-gs-200-10-400_trk-0-30-120_vs-0-lam_based_on_V_exp_200-S_h-5nm.xlsx'
                      ]
     # T = 3
     # ax_twin = ax[0].twinx()
+    horizontal_separation_requirement = Aircraft.horizontal_separation_requirement
 
     df_list = []
     f_simulation = None
@@ -78,6 +81,12 @@ if __name__ == "__main__":
             IV = 'trk_diff'
             IV_query = 'abs_sin_rad_trk_diff>0.01'
             IV_fancy_name = 'Angle between flows (degree)'
+
+        if 'S_h' in df['other_properties'].iloc[0]:
+            df['S_h'] = df['other_properties'].iloc[0]['S_h']
+        else:
+            df['S_h'] = Aircraft.horizontal_separation_requirement
+
         df['y_inv'] = 1/df['y']
         # df['color'] = 'C' + (((df['gs'].astype(float) - 100)/20).astype(int)+1).astype(str)
 
@@ -104,14 +113,6 @@ if __name__ == "__main__":
     dfs['abs_sin_rad_trk_diff'] = np.sin(dfs['abs_trk_diff_in_rad'])
 
 
-    from conflicts.simulate import Aircraft
-    def calculate_correction_factor(B1_exp, B2_exp):
-        g = Aircraft.horizontal_separation_requirement
-        # h = Aircraft.vertical_separation_requirement
-        # b = Aircraft.vertical_separation_requirement
-
-        # return 4 * g * h / (b * B1_exp * B2_exp)
-        return 2*g / ( B1_exp * B2_exp)
 
     # T_exp = n_aircraft_per_flow * horizontal_distance_exp / V_exp
     dfs['conflictsph'] = dfs['y']# /T_exp
@@ -127,7 +128,7 @@ if __name__ == "__main__":
     # B1_exp = horizontal_distance_exp
     # B2_exp = horizontal_distance_exp
 
-    correction_factor = calculate_correction_factor(B1_exp, B2_exp)
+    correction_factor = 2 * dfs['S_h'] / (B1_exp * B2_exp)
     dfs_ungrouped = dfs
     # for g, dfs in dfs_ungrouped.groupby(['lam', 'lam_flow2']):
 
