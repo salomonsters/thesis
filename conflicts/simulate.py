@@ -4,6 +4,7 @@ import logging
 from collections import OrderedDict
 from numbers import Number
 
+import matplotlib
 import matplotlib.pyplot as plt
 import numba
 import numpy as np
@@ -429,7 +430,7 @@ class Simulation:
     i = 0
     conflict_divisor = 1
 
-    def __init__(self, flows: CombinedFlows, activators=None, plot_frequency=None, calculate_conflict_per_time_unit=False):
+    def __init__(self, flows: CombinedFlows, activators=None, plot_frequency=None, calculate_conflict_per_time_unit=False, savefig_str=None):
         self.flows = flows
         self.activators = activators
         # if activators is not None:
@@ -440,6 +441,7 @@ class Simulation:
         self.rg = np.random.default_rng()
         self.flow_exhausted = [False for k in flows.flow_keys]
         self.calculate_conflict_per_time_unit = calculate_conflict_per_time_unit
+        self.savefig_str = savefig_str
 
     def simulate(self, f, T=None, conflict_frequency=None, stop_condition=None, T_conflict_window=None):
         dt = 1/f
@@ -505,10 +507,18 @@ class Simulation:
 
 
     def prepare_plot(self):
+        if self.savefig_str:
+            matplotlib.use("pgf")
+            matplotlib.rcParams.update({
+                "pgf.texsystem": "pdflatex",
+                'font.family': 'serif',
+                'text.usetex': True,
+                'pgf.rcfonts': False,
+            })
         self.fig, self.ax = plt.subplots(figsize=(10, 10))
         plt.ion()
-        self.xlim = [-11, 20]
-        self.ylim = [-11, 20]
+        self.xlim = [-2, 15]
+        self.ylim = [-2, 22]
         x_axis_scale_in_units = np.diff(self.xlim).item()
         y_axis_scale_in_units = np.diff(self.ylim).item()
         bbox = self.ax.get_window_extent().transformed(self.fig.dpi_scale_trans.inverted())
@@ -540,8 +550,14 @@ class Simulation:
             # progress = self.t / self.T
             # progress_divider = 1/self.lw_conflict
             # title = int(progress // progress_divider) * '#' +int((1 - progress) // progress_divider )* '_'
-            title = f"{self.t=}"
-            plt.title(title)
+            title = f"{self.t=:.4f}"
+
+            if self.savefig_str:
+                plt.axis('off')
+                plt.gcf().set_size_inches((3.5, 3.5))
+                plt.savefig(self.savefig_str.format(self.t))
+            else:
+                plt.title(title)
         plt.pause(0.05)
 
     @property
