@@ -1,4 +1,3 @@
-import copy
 import itertools
 import logging
 from collections import OrderedDict
@@ -114,7 +113,7 @@ class AircraftInFlow(Aircraft):
 
 class Flow:
     callsign_map = None
-    t_lookahead = 5./60.
+    t_lookahead = 5. / 60.
 
     def __init__(self, position, trk, gs, alt, vs, callsign, active, calculate_collisions=False, other_properties=None):
         self.n = self._check_dimensions_and_get_n(position, trk, gs, alt, vs, callsign, active)
@@ -127,7 +126,6 @@ class Flow:
         self.active = active
         self.callsign_map = {}
         self._populate_callsign_map(self.callsign)
-
 
         self.v = (gs * np.array([np.sin(np.radians(trk)), np.cos(np.radians(trk))])).T
         self.vs_fph = self.vs * 60.
@@ -246,7 +244,7 @@ class Flow:
 
 
 class CombinedFlows:
-    t_lookahead = 5/60
+    t_lookahead = 5 / 60
 
     def __init__(self, flows: OrderedDict):
         # self.flows = copy.deepcopy(flows)
@@ -259,7 +257,8 @@ class CombinedFlows:
         self.all_conflicts = {
             (flow_a, flow_b): np.zeros((self.flows[flow_a].n, self.flows[flow_b].n), dtype=bool)
             for flow_a, flow_b in self.flow_key_pairs}
-        self.active_conflicts_within_flow_or_between_flows = {k: np.zeros(self.flows[k].n, dtype=bool) for k in self.flow_keys}
+        self.active_conflicts_within_flow_or_between_flows = {k: np.zeros(self.flows[k].n, dtype=bool) for k in
+                                                              self.flow_keys}
         self.current_conflict_state.update({k: self.flows[k].conflicts for k in self.flow_keys})
         self._update_conflicts()
 
@@ -269,9 +268,20 @@ class CombinedFlows:
         for flow_a, flow_b in self.flow_key_pairs:
             conflicts_between_multiple(self.flows[flow_a], self.flows[flow_b], t_lookahead=self.t_lookahead,
                                        out=self.current_conflict_state[(flow_a, flow_b)])
-            self.active_conflicts_within_flow_or_between_flows[flow_a][:] = self.flows[flow_a].within_flow_active_conflicts | self.current_conflict_state[(flow_a, flow_b)].sum(axis=1) | self.active_conflicts_within_flow_or_between_flows[flow_a]
-            self.active_conflicts_within_flow_or_between_flows[flow_b][:] = self.flows[flow_b].within_flow_active_conflicts | self.current_conflict_state[(flow_a, flow_b)].sum(axis=0) | self.active_conflicts_within_flow_or_between_flows[flow_b]
-            self.all_conflicts[(flow_a, flow_b)][:, :] = self.current_conflict_state[(flow_a, flow_b)] | self.all_conflicts[(flow_a, flow_b)]
+            self.active_conflicts_within_flow_or_between_flows[flow_a][:] = self.flows[
+                                                                                flow_a].within_flow_active_conflicts | \
+                                                                            self.current_conflict_state[
+                                                                                (flow_a, flow_b)].sum(axis=1) | \
+                                                                            self.active_conflicts_within_flow_or_between_flows[
+                                                                                flow_a]
+            self.active_conflicts_within_flow_or_between_flows[flow_b][:] = self.flows[
+                                                                                flow_b].within_flow_active_conflicts | \
+                                                                            self.current_conflict_state[
+                                                                                (flow_a, flow_b)].sum(axis=0) | \
+                                                                            self.active_conflicts_within_flow_or_between_flows[
+                                                                                flow_b]
+            self.all_conflicts[(flow_a, flow_b)][:, :] = self.current_conflict_state[(flow_a, flow_b)] | \
+                                                         self.all_conflicts[(flow_a, flow_b)]
 
     def step(self, dt, update_conflicts=True):
         dt = Aircraft.convert_dt(dt)
@@ -284,7 +294,7 @@ class CombinedFlows:
         return self.flows[item]
 
 
-def conflict_between(own: Aircraft, intruder: Aircraft, t_lookahead=5./60):
+def conflict_between(own: Aircraft, intruder: Aircraft, t_lookahead=5. / 60):
     if not (own.active and intruder.active):
         return False
     x_rel = (intruder.position - own.position).reshape((2,))
@@ -293,14 +303,14 @@ def conflict_between(own: Aircraft, intruder: Aircraft, t_lookahead=5./60):
     with np.errstate(invalid='ignore'):
         t_horizontal_conflict = (np.inner(x_rel, v_rel) +
                                  np.array((-1, 1)) * np.sqrt(
-                    np.inner(x_rel, v_rel)**2 - norm(x_rel)**2*norm(v_rel)**2+norm(v_rel)**2
-                    * Aircraft.horizontal_separation_requirement**2)
-                                 )/(norm(v_rel)**2)
-        t_cpa = np.sum(t_horizontal_conflict)/2.
-        minimum_distance = norm(t_cpa*v_rel - x_rel)
+                    np.inner(x_rel, v_rel) ** 2 - norm(x_rel) ** 2 * norm(v_rel) ** 2 + norm(v_rel) ** 2
+                    * Aircraft.horizontal_separation_requirement ** 2)
+                                 ) / (norm(v_rel) ** 2)
+        t_cpa = np.sum(t_horizontal_conflict) / 2.
+        minimum_distance = norm(t_cpa * v_rel - x_rel)
         t_in_hor, t_out_hor = min(t_horizontal_conflict), max(t_horizontal_conflict)
         horizontal_conflict = minimum_distance < Aircraft.horizontal_separation_requirement \
-                              and t_out_hor > 0\
+                              and t_out_hor > 0 \
                               and t_in_hor < t_lookahead
         if not horizontal_conflict:
             return False
@@ -313,8 +323,8 @@ def conflict_between(own: Aircraft, intruder: Aircraft, t_lookahead=5./60):
                 # We have a horizontal conflict and we are flying level at conflicting altitudes, so we have a conflict
                 return True
 
-        t_vertical_conflict = (intruder.alt - own.alt + np.array((-1, 1))*Aircraft.vertical_separation_requirement
-                               )/vs_rel_fph
+        t_vertical_conflict = (intruder.alt - own.alt + np.array((-1, 1)) * Aircraft.vertical_separation_requirement
+                               ) / vs_rel_fph
         t_in_vert, t_out_vert = min(t_vertical_conflict), max(t_vertical_conflict)
 
         t_in_combined = max(t_in_hor, t_in_vert)
@@ -325,7 +335,8 @@ def conflict_between(own: Aircraft, intruder: Aircraft, t_lookahead=5./60):
 
 
 @numba.jit(parallel=True, error_model='numpy')
-def calculate_horizontal_conflict(shape, own_active, other_active, own_position, other_position, own_v, other_v, separation_requirement_sq,
+def calculate_horizontal_conflict(shape, own_active, other_active, own_position, other_position, own_v, other_v,
+                                  separation_requirement_sq,
                                   t_in_hor, t_out_hor, minimum_distance):
     for i in numba.prange(shape[0]):
         for j in numba.prange(shape[1]):
@@ -354,18 +365,19 @@ def calculate_horizontal_conflict(shape, own_active, other_active, own_position,
                 t_out_hor[i, j] = -1
 
 
-def conflicts_between_multiple(own: Flow, other: Flow=None, t_lookahead=5. / 60, out=None):
+def conflicts_between_multiple(own: Flow, other: Flow = None, t_lookahead=5. / 60, out=None):
     if other is None:
         other = own
     t_in_hor = np.zeros((own.n, other.n), dtype=Aircraft.dtype)
     t_out_hor = np.zeros((own.n, other.n), dtype=Aircraft.dtype)
     minimum_distance = np.zeros((own.n, other.n), dtype=Aircraft.dtype)
-    calculate_horizontal_conflict((own.n, other.n), own.active, other.active, own.position, other.position, own.v, other.v,
+    calculate_horizontal_conflict((own.n, other.n), own.active, other.active, own.position, other.position, own.v,
+                                  other.v,
                                   Aircraft.horizontal_separation_requirement ** 2,
                                   t_in_hor, t_out_hor, minimum_distance)
     with np.errstate(invalid='ignore'):
         horizontal_conflict = (minimum_distance < Aircraft.horizontal_separation_requirement) \
-                              & (t_out_hor > 0)\
+                              & (t_out_hor > 0) \
                               & (t_in_hor < t_lookahead)
 
     # both_active = np.expand_dims(own.active, 1) & np.expand_dims(other.active, 0)
@@ -373,8 +385,8 @@ def conflicts_between_multiple(own: Flow, other: Flow=None, t_lookahead=5. / 60,
     vs_rel_fph = -(np.expand_dims(own.vs_fph, 1) - np.expand_dims(other.vs_fph, 0))
     alt_diff = np.expand_dims(own.alt, 1) - np.expand_dims(other.alt, 0)
     with np.errstate(divide='ignore'):
-        t_vertical_conflict = np.array([(alt_diff + Aircraft.vertical_separation_requirement)/vs_rel_fph,
-                                        (alt_diff - Aircraft.vertical_separation_requirement)/vs_rel_fph])
+        t_vertical_conflict = np.array([(alt_diff + Aircraft.vertical_separation_requirement) / vs_rel_fph,
+                                        (alt_diff - Aircraft.vertical_separation_requirement) / vs_rel_fph])
         t_in_vert = np.min(t_vertical_conflict, axis=0)
         t_out_vert = np.max(t_vertical_conflict, axis=0)
     with np.errstate(invalid='ignore'):
@@ -385,6 +397,7 @@ def conflicts_between_multiple(own: Flow, other: Flow=None, t_lookahead=5. / 60,
         return horizontal_conflict & (level_conflict | vertical_conflict)
     else:
         out[:, :] = horizontal_conflict & (level_conflict | vertical_conflict)
+
 
 #
 #
@@ -430,7 +443,8 @@ class Simulation:
     i = 0
     conflict_divisor = 1
 
-    def __init__(self, flows: CombinedFlows, activators=None, plot_frequency=None, calculate_conflict_per_time_unit=False, savefig_str=None):
+    def __init__(self, flows: CombinedFlows, activators=None, plot_frequency=None,
+                 calculate_conflict_per_time_unit=False, savefig_str=None):
         self.flows = flows
         self.activators = activators
         # if activators is not None:
@@ -444,7 +458,7 @@ class Simulation:
         self.savefig_str = savefig_str
 
     def simulate(self, f, T=None, conflict_frequency=None, stop_condition=None, T_conflict_window=None):
-        dt = 1/f
+        dt = 1 / f
         self.f_simulation = f
         if stop_condition is None:
             if T is None:
@@ -453,6 +467,7 @@ class Simulation:
             def stop_condition_function(obj, T_final):
                 while True:
                     yield not (obj.t + dt < T_final)
+
             stop_condition = stop_condition_function(self, T)
         if self.plot_frequency is not None:
             relative_plot_frequency = f // self.plot_frequency
@@ -498,13 +513,15 @@ class Simulation:
                         continue
 
                     previous_callsign = self.flows[self.flows.flow_keys[flow_i]].previous_activated_callsign
-                    if previous_callsign is not None and 'measured_distances_at_spawn' in self.flows[self.flows.flow_keys[flow_i]].other_properties:
+                    if previous_callsign is not None and 'measured_distances_at_spawn' in self.flows[
+                        self.flows.flow_keys[flow_i]].other_properties:
                         previous_callsign_i = self.flows[self.flows.flow_keys[flow_i]].callsign_map[previous_callsign]
 
-                        x_rel = self.flows[self.flows.flow_keys[flow_i]].position[previous_callsign_i] - self.flows[self.flows.flow_keys[flow_i]].position[previous_callsign_i+1]
-                        self.flows[self.flows.flow_keys[flow_i]].other_properties['measured_distances_at_spawn'][previous_callsign_i + 1] = np.linalg.norm(x_rel)
+                        x_rel = self.flows[self.flows.flow_keys[flow_i]].position[previous_callsign_i] - \
+                                self.flows[self.flows.flow_keys[flow_i]].position[previous_callsign_i + 1]
+                        self.flows[self.flows.flow_keys[flow_i]].other_properties['measured_distances_at_spawn'][
+                            previous_callsign_i + 1] = np.linalg.norm(x_rel)
                     self.flows[self.flows.flow_keys[flow_i]].activate(callsign)
-
 
     def prepare_plot(self):
         if self.savefig_str:
@@ -555,7 +572,7 @@ class Simulation:
             if self.savefig_str:
                 plt.axis('off')
                 plt.gcf().set_size_inches((3.5, 3.5))
-                plt.savefig(self.savefig_str.format(self.t))
+                plt.savefig(self.savefig_str.format(self.t), bbox_inches='tight')
             else:
                 plt.title(title)
         plt.pause(0.05)
@@ -565,41 +582,120 @@ class Simulation:
         divisor = 1
         if self.calculate_conflict_per_time_unit:
             divisor = self.conflict_divisor
-        aggregated_conflicts = {k: np.sum(self.flows[k].all_conflicts)/divisor for k in self.flows.flow_keys}
-        aggregated_conflicts.update({k: np.sum(self.flows.all_conflicts[k])/divisor for k in self.flows.flow_key_pairs})
+        aggregated_conflicts = {k: np.sum(self.flows[k].all_conflicts) / divisor for k in self.flows.flow_keys}
+        aggregated_conflicts.update(
+            {k: np.sum(self.flows.all_conflicts[k]) / divisor for k in self.flows.flow_key_pairs})
         return aggregated_conflicts
 
 
-V_exp = 200 # knots
-horizontal_distance_exp = 8.5 # nm
-n_aircraft_per_flow = 100
-f_simulation = 3600 // 1
-T_conflict_window = [1, 3]
-# conflict_divisor = T_conflict_window[1] - T_conflict_window[0]
-calculate_conflict_rate = True
-radius = 20
+def generate_start_positions(target, radius, bearing_deg):
+    bearing = np.radians(bearing_deg)
+    x_start = target[0] - np.sin(bearing) * radius
+    y_start = target[1] - np.cos(bearing) * radius
+    return x_start, y_start
+
+
+def activators(self, use_poisson=False):
+    if use_poisson:
+        lam_values = OrderedDict()
+        # lam = 0.1
+        for flow_i, flow in enumerate(self.flows.flows):
+            lam = self.flows[flow].other_properties['lam']
+            if lam in lam_values.keys():
+                lam_values[lam].append(flow_i)
+            else:
+                lam_values[lam] = [flow_i]
+        lam_values_inverse = {}
+        for k, v in lam_values.items():
+            for x in v:
+                lam_values_inverse[x] = k
+        lam_values_keys = list(lam_values)
+        selector = [lam_values_keys.index(lam_values_inverse[k]) for k in sorted(lam_values_inverse.keys())]
+
+        # print("Lambda of poisson distribution: {}".format(lam))
+        while True:
+            yield np.argwhere(np.choose(selector, [self.rg.poisson(lam=lam, size=len(self.flows.flow_keys)) for lam in
+                                                   lam_values.keys()]))
+
+            # yield np.argwhere(self.rg.poisson(lam=lam, size=len(self.flows.flow_keys)))
+    else:
+        raise NotImplementedError("Only poisson currently supported")
+        # while True:
+        #     yield np.argwhere(self.rg.random(len(self.flows.flow_keys)) < n_aircraft_per_flow / (self.f_simulation * T_intended))
+
+
+def stop_condition(obj: Simulation):
+    while not np.all(obj.flow_exhausted):
+        yield False
+    print("At T={:>.4f}: All aircraft are active, simulating until {}".format(obj.t, obj.t + 0.5))
+    for _ in np.linspace(0, 1, f_simulation // 2):
+        yield False
+    yield True
+
+
+def run_and_save_sim_results_to_file(flows_kwargs, flows_dict, out_fn, T_conflict_window, f_simulation=3600,
+                                     f_conflict=None, f_plot=None, stop_function=None, try_save_on_exception=True,
+                                     calculate_conflict_per_time_unit=True):
+    if stop_function is None:
+        stop_function = stop_condition
+    if f_conflict is None:
+        f_conflict = 3600 // 240
+
+    flows = CombinedFlows(flows_dict)
+    had_exception = False
+    try:
+        sim = Simulation(flows, True, plot_frequency=f_plot,
+                         calculate_conflict_per_time_unit=calculate_conflict_per_time_unit)
+        sim.activators = activators(sim, use_poisson=True)
+        sim.simulate(f_simulation, conflict_frequency=f_conflict, stop_condition=stop_function(sim),
+                     T_conflict_window=T_conflict_window)
+        # sim.simulate(f_simulation, T)
+    except:
+        had_exception = True
+        raise
+    finally:
+        if not had_exception or (
+                had_exception and input("We had an exception, do you still want to save? Y/N").upper() == 'Y') \
+                and try_save_on_exception:
+            import pandas as pd
+
+            df = pd.DataFrame.from_records([(v, *k) if isinstance(k, tuple) else (v, k) for k, v
+                                            in sim.aggregated_conflicts.items()],
+                                           columns=('conflicts', 'flow1', 'flow2'))[['flow1', 'flow2', 'conflicts']]
+            df2 = pd.DataFrame(flows_kwargs).T
+            df2_columns = list(df2.columns)
+            df2_columns.remove('callsign')
+            df2_columns.remove('active')
+            df2 = df2[df2_columns]
+            df_joined = df.join(df2, on='flow1', rsuffix='_flow1').join(df2, on='flow2', rsuffix='_flow2')
+            # df_joined['IV'] = np.abs(np.mod(df_joined['trk_flow2'] - df_joined['trk'], 360))
+            # df_joined['IV'][df_joined['IV'] > 180] = 360 - df_joined['IV'][df_joined['IV'] > 180]
+            df_joined['y'] = df_joined['conflicts']
+            with pd.ExcelWriter(out_fn) as writer:
+                df_joined.to_excel(writer, sheet_name='Conflicts')
+                # df2.to_excel(writer, sheet_name='Properties')
+            print("Results saved to {}".format(out_fn))
 
 if __name__ == "__main__":
+    V_exp = 200  # knots
+    horizontal_distance_exp = 8.5  # nm
+    n_aircraft_per_flow = 100
+    f_simulation = 3600 // 1
+    T_conflict_window = [1, 3]
+    # conflict_divisor = T_conflict_window[1] - T_conflict_window[0]
+    calculate_conflict_rate = True
+    radius = 20
     # out_fn = 'data/simulated_conflicts/poisson-25percentdeviation-f-3600-gs-100_trk-0-1-360_vs-0-intended_sep-8.5nm-measured-spawndistances.xlsx'
     out_fn = 'data/simulated_conflicts/poisson-f-3600-gs-200_trk-0-30-120_vs-0-lam--1e-3--1e-3--1e-2.xlsx'
     # f_plot = 3600 // 240
     f_plot = None
-    f_conflict = 3600 // 240
 
     flows_kwargs = OrderedDict()
     flows_dict = OrderedDict()
 
-    def generate_start_positions(target, radius, bearing_deg):
-        bearing = np.radians(bearing_deg)
-        x_start = target[0] - np.sin(bearing) * radius
-        y_start = target[1] - np.cos(bearing) * radius
-        return x_start, y_start
-
-
-    rg = np.random.default_rng()
-
     flow_i = 0
     gs = V_exp
+
     for trk in (0, 30, 60, 90, 120):
         for lam in list(np.arange(0.001, 0.01, 0.001)):
             flow_name = 'trk_{}_lam_{:.4f}'.format(int(trk), lam)
@@ -620,7 +716,7 @@ if __name__ == "__main__":
                     'lam': lam,
                     # 'conflict_divisor': conflict_divisor,
                     'conflict_rate_calculated': calculate_conflict_rate,
-                    'measured_distances_at_spawn': np.zeros((n_aircraft_per_flow, ), dtype=float),
+                    'measured_distances_at_spawn': np.zeros((n_aircraft_per_flow,), dtype=float),
                     'IV': 'lam',
                     'S_h': Aircraft.horizontal_separation_requirement,
                 }
@@ -628,75 +724,6 @@ if __name__ == "__main__":
             flows_dict[flow_name] = Flow.expand_properties(flows_kwargs[flow_name])
             flow_i += 1
 
-    flows = CombinedFlows(flows_dict)
-
-    def activators(self, use_poisson=False):
-            if use_poisson:
-                lam_values = OrderedDict()
-                # lam = 0.1
-                for flow_i, flow in enumerate(self.flows.flows):
-                    lam = self.flows[flow].other_properties['lam']
-                    if lam in lam_values.keys():
-                        lam_values[lam].append(flow_i)
-                    else:
-                        lam_values[lam] = [flow_i]
-                lam_values_inverse = {}
-                for k, v in lam_values.items():
-                    for x in v:
-                        lam_values_inverse[x] = k
-                lam_values_keys = list(lam_values)
-                selector = [lam_values_keys.index(lam_values_inverse[k]) for k in sorted(lam_values_inverse.keys())]
-
-                # print("Lambda of poisson distribution: {}".format(lam))
-                while True:
-                    yield np.argwhere(np.choose(selector, [self.rg.poisson(lam=lam, size=len(self.flows.flow_keys)) for lam in lam_values.keys()]))
-
-                    # yield np.argwhere(self.rg.poisson(lam=lam, size=len(self.flows.flow_keys)))
-            else:
-                raise NotImplementedError("Only poisson currently supported")
-                # while True:
-                #     yield np.argwhere(self.rg.random(len(self.flows.flow_keys)) < n_aircraft_per_flow / (self.f_simulation * T_intended))
-
-    def stop_condition(obj: Simulation):
-        while not np.all(obj.flow_exhausted):
-            yield False
-        print("At T={:>.4f}: All aircraft are active, simulating until {}".format(obj.t, obj.t + 0.5))
-        for _ in np.linspace(0, 1, f_simulation // 2):
-            yield False
-        yield True
-
-    # activators = np.array(activators_list, dtype=bool)
-
-    # activators[:, 0] = True
-    had_exception = False
-    try:
-        sim = Simulation(flows, True, plot_frequency=f_plot, calculate_conflict_per_time_unit=calculate_conflict_rate)
-        sim.activators = activators(sim, use_poisson=True)
-        sim.simulate(f_simulation, conflict_frequency=f_conflict, stop_condition=stop_condition(sim), T_conflict_window=T_conflict_window)
-        # sim.simulate(f_simulation, T)
-    except:
-        had_exception = True
-        raise
-    finally:
-        if not had_exception or (had_exception and input("We had an exception, do you still want to save? Y/N").upper() == 'Y'):
-
-            import pandas as pd
-
-            df = pd.DataFrame.from_records([(v, *k) if isinstance(k, tuple) else (v, k) for k, v
-                                            in sim.aggregated_conflicts.items()],
-                                           columns=('conflicts', 'flow1', 'flow2'))[['flow1', 'flow2', 'conflicts']]
-            df2 = pd.DataFrame(flows_kwargs).T
-            df2_columns = list(df2.columns)
-            df2_columns.remove('callsign')
-            df2_columns.remove('active')
-            df2 = df2[df2_columns]
-            df_joined = df.join(df2, on='flow1', rsuffix='_flow1').join(df2, on='flow2', rsuffix='_flow2')
-            # df_joined['IV'] = np.abs(np.mod(df_joined['trk_flow2'] - df_joined['trk'], 360))
-            # df_joined['IV'][df_joined['IV'] > 180] = 360 - df_joined['IV'][df_joined['IV'] > 180]
-            df_joined['y'] = df_joined['conflicts']
-            with pd.ExcelWriter(out_fn) as writer:
-
-                df_joined.to_excel(writer, sheet_name='Conflicts')
-                # df2.to_excel(writer, sheet_name='Properties')
-            print("Results saved to {}".format(out_fn))
-
+    run_and_save_sim_results_to_file(flows_kwargs, flows_dict, out_fn, T_conflict_window, f_simulation=3600,
+                                     f_plot=None, stop_function=None, try_save_on_exception=True,
+                                     calculate_conflict_per_time_unit=calculate_conflict_rate)

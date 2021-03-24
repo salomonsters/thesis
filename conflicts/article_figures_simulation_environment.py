@@ -51,4 +51,5 @@ flows['flow2'] = flow2
 flows['flow3'] = flow3
 combined_flows = CombinedFlows(copy.deepcopy(flows))
 sim = Simulation(combined_flows, plot_frequency=20,
-                 savefig_str='pgf/test_conflicts_simulate/test_simulation_results-{:.4f}.pgf')
+                 savefig_str='pgf/simulation_environment_example-{:.4f}.pgf')
+sim.simulate(20, 0.7, T_conflict_window=[0, 0.2])
