@@ -8,7 +8,7 @@ from matplotlib import pyplot as plt, ticker
 from conflicts.simulate import Aircraft
 
 
-def plot_simulation_consistency(input_filenames, pgf_options=None):
+def plot_simulation_consistency(input_filenames, plot_options=None):
     df_list = []
     f_simulation = None
     IV_query = None
@@ -47,9 +47,9 @@ def plot_simulation_consistency(input_filenames, pgf_options=None):
                 df['trk_diff_uncorrected'] = np.abs(np.mod(df['trk_flow2'] - df['trk'], 360))
                 df['trk_diff'] = np.where(df['trk_diff_uncorrected'] > 180, 360 - df['trk_diff_uncorrected'],
                                           df['trk_diff_uncorrected'])
-                df['x'] = np.abs(df[IV] - df[IV + '_flow2'])
+                df['x'] = (df[IV] - df[IV + '_flow2']).apply(lambda x: round(np.abs(x)))
                 IV_query = 'trk_diff>1'
-                IV_fancy_name = 'Groundspeed difference (kts)'
+                IV_fancy_name = 'Groundspeed difference [kts]'
             elif IV == 'lam':
                 df['trk_diff_uncorrected'] = np.abs(np.mod(df['trk_flow2'] - df['trk'], 360))
                 df['trk_diff'] = np.where(df['trk_diff_uncorrected'] > 180, 360 - df['trk_diff_uncorrected'],
@@ -59,20 +59,18 @@ def plot_simulation_consistency(input_filenames, pgf_options=None):
                 # df['lam'] is in aircraft/timestep, so need to multiply with f_simulation to get aircraft/hr
                 df['x'] = (f_simulation * (df['lam'] + df['lam_flow2']) / 2).apply(round)
                 IV_fancy_name = 'Mean arrival rate $\lambda$ [aircraft/hr]'
-
+            elif IV == 'trk_diff':
+                df['trk_diff_uncorrected'] = np.abs(np.mod(df['trk_flow2'] - df['trk'], 360))
+                df['trk_diff'] = np.where(df['trk_diff_uncorrected'] > 180, 360 - df['trk_diff_uncorrected'],
+                                          df['trk_diff_uncorrected'])
+                df['x'] = (10 * np.round(df['trk_diff']/10.)).apply(round)
+                IV_query = 'abs_sin_rad_trk_diff>0.01'
+                IV_fancy_name = 'Angle between flows [$^\circ$]'
+                # IV_plot_callback = lambda fig, ax: ax[1].xaxis.set_major_locator(ticker.MultipleLocator(10))
             else:
                 raise NotImplementedError()
-
         else:
-            if IV is not None and IV != 'trk_diff':
-                raise ValueError("IV's {} and {} not of same type".format(IV, 'trk_diff'))
-            df['x'] = df['IV']
-            df['trk_diff'] = np.abs(np.mod(df['trk_flow2'] - df['trk'], 360))
-            df['trk_diff'][df['trk_diff'] > 180] = 360 - df['trk_diff'][df['trk_diff'] > 180]
-            IV = 'trk_diff'
-            IV_query = 'abs_sin_rad_trk_diff>0.01'
-            IV_fancy_name = 'Angle between flows (degree)'
-            IV_plot_callback = lambda fig, ax: ax[4].xaxis.set_major_locator(ticker.MultipleLocator(10))
+            raise NotImplementedError("Need to specify IV_type in other_properties")
 
         if 'S_h' in df['other_properties'].iloc[0]:
             df['S_h'] = df['other_properties'].iloc[0]['S_h']
@@ -133,20 +131,22 @@ def plot_simulation_consistency(input_filenames, pgf_options=None):
     # dfs.boxplot sets the figure title but we do not want that
     fig.suptitle('')
 
-    if pgf_options is not None:
-        matplotlib.use("pgf")
-        matplotlib.rcParams.update({
-            "pgf.texsystem": "pdflatex",
-            'font.family': 'serif',
-            'text.usetex': True,
-            'pgf.rcfonts': False,
-        })
-        fig.set_size_inches(**pgf_options['size'])
-        fig.savefig(pgf_options['fn'], bbox_inches='tight')
-        print("Saved output to {}".format(pgf_options['fn']))
+    if plot_options is not None:
+        plot_type = plot_options['fn'].rsplit('.')[-1]
+        if plot_type == 'pgf':
+            matplotlib.use("pgf")
+            matplotlib.rcParams.update({
+                "pgf.texsystem": "pdflatex",
+                'font.family': 'serif',
+                'text.usetex': True,
+                'pgf.rcfonts': False,
+            })
+        fig.set_size_inches(**plot_options['size'])
+        fig.savefig(plot_options['fn'], bbox_inches='tight')
+        print("Saved output to {}".format(plot_options['fn']))
 
-    else:
-        plt.show()
+        if plot_type != "pgf":
+            plt.show()
 
     # Return dfs for possible usage
     return dfs
@@ -168,12 +168,18 @@ if __name__ == "__main__":
         # 'data/simulated_conflicts/poisson-f-3600-gs-200-10-400_trk-0-30-120_vs-0-lam_based_on_V_exp_200-S_h-5nm.xlsx',
         # 'data/simulated_conflicts/poisson-f-3600-gs-200_trk-0-30-120_vs-0-lam--1e-3--1e-3--1e-2.xlsx'
     ]
-    out_filenames = ['data/simulated_conflicts/' 
-                     'poisson-f-3600-gs-200_trk-0-30-120_vs-0-acph-3-2-18-realisation-{}.xlsx'.format(realisation)
-                     for realisation in range(10)]
-    pgf_options = {
-        'fn': 'pgf/varying_isolated_quantities/lambda-10-realisations.pgf',
+    # out_filenames = ['data/simulated_conflicts/'
+    #                  'poisson-f-3600-gs-200_trk-0-30-120_vs-0-acph-3-2-18-realisation-{}.xlsx'.format(realisation)
+    #                  for realisation in range(10)]
+    # out_filenames = [ 'data/simulated_conflicts/' \
+    #              'poisson-f-3600-gs-{}_trk-0-2.5-360_vs-0-acph-{}-realisation-{}.xlsx'.format(200, 15, realisation) for realisation in range(10)]
+    out_filenames = [ 'data/simulated_conflicts/' \
+                 'poisson-f-3600-gs-{}_trk-0-2.5-360_vs-0-acph-{}-R_{}nm-realisation-{}.xlsx'.format(200, 15, 200, r) for r in range(2)]
+    plot_fn = 'pgf/varying_isolated_quantities/vary_trk_0_2.5_360-gs-{}-{}_realisations-{}_acph-R_{}nm.pgf'.format(
+        200, 200, 15, 200)
+    plot_options = {
+        'fn': plot_fn,
         'size': {'w': 3.5, 'h': 6}
     }
-
-    dfs = plot_simulation_consistency(out_filenames, pgf_options=pgf_options)
+    # pgf_options = None
+    dfs = plot_simulation_consistency(out_filenames, plot_options=plot_options)

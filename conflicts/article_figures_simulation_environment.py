@@ -53,3 +53,33 @@ combined_flows = CombinedFlows(copy.deepcopy(flows))
 sim = Simulation(combined_flows, plot_frequency=20,
                  savefig_str='pgf/simulation_environment_example-{:.4f}.pgf')
 sim.simulate(20, 0.7, T_conflict_window=[0, 0.2])
+
+from conflicts.run_scenarios import gs, lam, f_sim
+import matplotlib.pyplot as plt
+from matplotlib import ticker
+import matplotlib
+
+trk_deg = np.arange(0, 180, 2.5)
+trk_rad = np.radians(trk_deg)
+B_exp = gs / (lam * f_sim)
+Vrh = (gs ** 2 + gs ** 2 - 2 * gs * gs * np.cos(trk_rad)) ** 0.5
+pred_conflict_rate = 2 * Aircraft.horizontal_separation_requirement / (B_exp * B_exp) * (Vrh / (np.sin(trk_rad)))
+
+matplotlib.use("pgf")
+matplotlib.rcParams.update({
+    "pgf.texsystem": "pdflatex",
+    'font.family': 'serif',
+    'text.usetex': True,
+    'pgf.rcfonts': False,
+})
+pgf_options = {
+    'fn': 'pgf/predicted_conflicts_vs_trk_diff.pgf',
+    'size': {'w': 3.5, 'h': 2.5}
+}
+fig, ax = plt.subplots(1,1, figsize=(6.5, 6.5))
+plt.plot(pred_conflict_rate, trk_deg)
+ax.set_xlabel("Predicted conflict rate [1/hr]")
+ax.set_ylabel('Angle between flows [$^\circ$]')
+ax.yaxis.set_major_locator(ticker.MultipleLocator(20))
+fig.set_size_inches(**pgf_options['size'])
+fig.savefig(pgf_options['fn'], bbox_inches='tight')
