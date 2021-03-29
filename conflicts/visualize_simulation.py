@@ -71,11 +71,13 @@ def plot_simulation_consistency(input_filenames, plot_options=None):
                 raise NotImplementedError()
         else:
             raise NotImplementedError("Need to specify IV_type in other_properties")
-
+        import warnings
         if 'S_h' in df['other_properties'].iloc[0]:
             df['S_h'] = df['other_properties'].iloc[0]['S_h']
+            warnings.warn("Using S_h={}".format(df['other_properties'].iloc[0]['S_h']))
         else:
             df['S_h'] = Aircraft.horizontal_separation_requirement
+            warnings.warn("Using default separation requirement of {}".format(Aircraft.horizontal_separation_requirement))
 
         df_list.append(df)
 
@@ -175,11 +177,14 @@ if __name__ == "__main__":
     #              'poisson-f-3600-gs-{}_trk-0-2.5-360_vs-0-acph-{}-realisation-{}.xlsx'.format(200, 15, realisation) for realisation in range(10)]
     out_filenames = [ 'data/simulated_conflicts/' \
                  'poisson-f-3600-gs-{}_trk-0-2.5-360_vs-0-acph-{}-R_{}nm-realisation-{}.xlsx'.format(200, 15, 200, r) for r in range(2)]
+    out_filenames = ['data/simulated_conflicts/poisson-f-3600-gs-100-5-200_trk-0-30-120_vs-0-acph-15-R_200nm-realisation-0.xlsx',
+                     'data/simulated_conflicts/poisson-f-3600-gs-100-5-200_trk-0-30-120_vs-0-acph-15-R_200nm-realisation-1.xlsx',
+    'data/simulated_conflicts/poisson-f-3600-gs-100-5-200_trk-0-30-120_vs-0-acph-15-R_200nm-realisation-2.xlsx']
     plot_fn = 'pgf/varying_isolated_quantities/vary_trk_0_2.5_360-gs-{}-{}_realisations-{}_acph-R_{}nm.pgf'.format(
         200, 200, 15, 200)
     plot_options = {
         'fn': plot_fn,
         'size': {'w': 3.5, 'h': 6}
     }
-    # pgf_options = None
+    plot_options = None
     dfs = plot_simulation_consistency(out_filenames, plot_options=plot_options)
