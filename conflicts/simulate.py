@@ -17,7 +17,7 @@ ureg = UnitRegistry()
 class Aircraft:
     horizontal_separation_requirement = 3  # nm
     vertical_separation_requirement = 1000  # ft
-    dtype = np.float
+    dtype = float
     vx, vy, v = None, None, None
 
     def __init__(self, position, trk, gs, alt, vs, callsign, active=True):
@@ -335,12 +335,11 @@ def conflict_between(own: Aircraft, intruder: Aircraft, t_lookahead=5. / 60):
         return False
 
 
-@numba.jit(parallel=True, error_model='numpy')
-def calculate_horizontal_conflict(shape, own_active, other_active, own_position, other_position, own_v, other_v,
-                                  separation_requirement_sq,
+@numba.njit(parallel=True, error_model='numpy')
+def calculate_horizontal_conflict(shape0, shape1, own_active, other_active, own_position, other_position, own_v, other_v, separation_requirement_sq,
                                   t_in_hor, t_out_hor, minimum_distance):
-    for i in numba.prange(shape[0]):
-        for j in numba.prange(shape[1]):
+    for i in numba.prange(shape0):
+        for j in numba.prange(shape1):
             if own_active[i] and other_active[j]:
                 position_diff_x = -(own_position[i][0] - other_position[j][0])
                 position_diff_y = -(own_position[i][1] - other_position[j][1])
@@ -372,8 +371,7 @@ def conflicts_between_multiple(own: Flow, other: Flow = None, t_lookahead=5. / 6
     t_in_hor = np.zeros((own.n, other.n), dtype=Aircraft.dtype)
     t_out_hor = np.zeros((own.n, other.n), dtype=Aircraft.dtype)
     minimum_distance = np.zeros((own.n, other.n), dtype=Aircraft.dtype)
-    calculate_horizontal_conflict((own.n, other.n), own.active, other.active, own.position, other.position, own.v,
-                                  other.v,
+    calculate_horizontal_conflict(own.n, other.n, own.active, other.active, own.position, other.position, own.v, other.v,
                                   Aircraft.horizontal_separation_requirement ** 2,
                                   t_in_hor, t_out_hor, minimum_distance)
     with np.errstate(invalid='ignore'):

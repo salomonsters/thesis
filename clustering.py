@@ -39,8 +39,8 @@ class Adjacency:
         for i in numba.prange(self.W.shape[0]):
             for j in numba.prange(self.W.shape[0]):
                 if i == j:
-                    # Value on diagonal is always 0
-                    self.W[i, j] = 0.
+                    # Value on diagonal is always 1
+                    self.W[i, j] = 1.
                 # We copy everything below the diagonal to above
                 elif not (i < j):
                     dist_squared = self.D[i, j]
@@ -162,9 +162,9 @@ class Clustering:
         assert not array_equal(original_indices[i_r], original_indices)
 
         if self.visualisation:
-            title = "blue: n={0}, mean={1:.4f}, var={2:.4f}; ".format(len(i_l), np.mean(W_il_il),
+            title = "green: n={0}, mean={1:.4f}, var={2:.4f}; ".format(len(i_l), np.mean(W_il_il),
                                                                       np.var(W_il_il) / np.var(W)) + \
-                    "orange: n={0}, mean={1:.4f}, var={2:.4f}".format(len(i_r), np.mean(W_ir_ir),
+                    "red: n={0}, mean={1:.4f}, var={2:.4f}".format(len(i_r), np.mean(W_ir_ir),
                                                                       np.var(W_ir_ir) / np.var(W))
             self.visualisation.intermediate_result(self.x[original_indices[i_l]], self.x[original_indices[i_r]], title,
                                                    fname_arg=recursion)
@@ -347,6 +347,19 @@ class VisualiseClustering:
         self.ax.clear()
 
 
+def get_non_diagonal_elements(square_matrix):
+    n = square_matrix.shape[0]
+    return np.lib.stride_tricks.as_strided(
+        square_matrix, (n - 1, n + 1), (square_matrix.itemsize * (n + 1), square_matrix.itemsize))[:, 1:]
+
+
+def when_everything_within_interval(W_ii, W):
+    W_ii = get_non_diagonal_elements(W_ii)
+    W = get_non_diagonal_elements(W)
+    return W.mean() > 0.4 and np.all(W_ii.min(axis=1) > W.mean() - W.std())
+
+
+
 if __name__ == "__main__":
     verbose = True
     airspace_query = "airport=='EHAM'"
@@ -361,7 +374,9 @@ if __name__ == "__main__":
     K = 6
     plot_individual_clusters = True
     use_plot_titles = True
-    show_plots = False
+    show_plots = True
+    # stop_function = lambda X, Y: np.mean(X) > .4
+    stop_function = when_everything_within_interval
 
     one_matrix_shape = n_data_points, len(fields)
     airspace = ehaa_airspace.query(airspace_query)
@@ -400,7 +415,7 @@ if __name__ == "__main__":
     visualisation.plot_means(None, x.reshape((-1, x.shape[2])), title='All tracks', fname_arg='00_unclustered')
     log("Converted coordinates, Queued adjacency matrix calculation")
 
-    clustering = Clustering(x, K, e_mean, e_var, min_cluster_size, stop_function=None, visualisation=visualisation)
+    clustering = Clustering(x, K, e_mean, e_var, min_cluster_size, stop_function=stop_function, visualisation=visualisation)
     W = clustering.calculate_adjacency()
     log("Calculated adjacency matrix")
     clustering.spectral_cluster(W)
