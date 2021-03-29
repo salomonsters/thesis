@@ -1,142 +1,190 @@
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
 import ast
+
+import matplotlib
 import numpy as np
+import pandas as pd
+from matplotlib import pyplot as plt, ticker
+
+from conflicts.simulate import Aircraft
 
 
-if __name__ == "__main__":
-    filter = ''
-    # out_filenames = ['data/simulated_conflicts/gs-80_trk-0-1-360_vs-0.xlsx',
-    #           'data/simulated_conflicts/gs-100_trk-0-1-360_vs-0.xlsx',
-    #           'data/simulated_conflicts/gs-120_trk-0-1-360_vs-0.xlsx']
-    # fig, ax = plt.subplots(figsize=(10,6))
-    # df_list = []
-    # for i, fn in enumerate(out_filenames):
-    #     df = pd.read_excel(fn)
-    #     df['fn'] = fn.split('/')[-1].split('.')[0]
-    #     df['x'] = df['IV'] + i
-    #     df['y_inv'] = 1/df['y']
-    #     df['color'] = 'C{}'.format(i)
-    #     df_list.append(df)
-    # dfs = pd.concat(df_list)
-
-    # for name, group in dfs.groupby('fn'):
-    #     group.plot(kind='scatter', x='x', y='y_inv', ax=ax, label=name, c=group['color'], s=0.1)
-    # lgnd = plt.legend(scatterpoints=1, fontsize=10)
-    # for i in range(len(lgnd.legendHandles)):
-    #     lgnd.legendHandles[i]._sizes = [30]
-    # plt.show()
-
-    out_filenames = [# 'data/simulated_conflicts/poisson-gs-80-100-120_trk-0-1-360_vs-0.xlsx',
-                    #  'data/simulated_conflicts/poisson-f-3600-gs-100_trk-0-1-360_vs-0.xlsx',
-                    # 'data/simulated_conflicts/poisson-choice-f-3600-gs-100_trk-0-1-360_vs-0.xlsx'
-                    # 'data/simulated_conflicts/poisson-nochoice-f-3600-gs-100_trk-0-1-360_vs-0.xlsx'
-                    # 'data/simulated_conflicts/poisson-nochoice-f-3600-gs-100_trk-0-1-360_vs-0-intended_sep-8nm.xlsx'
-                    # 'data/simulated_conflicts/poisson-nochoice-f-3600-gs-100_trk-0-1-360_vs-0-intended_sep-8.5nm.xlsx'
-                    'data/simulated_conflicts/poisson-25percentdeviation-f-3600-gs-100_trk-0-1-360_vs-0-intended_sep-8.5nm.xlsx'
-                     ]
-    # T = 3
-    fig, ax = plt.subplots(5, 1, figsize=(10,12))
-    # ax_twin = ax[0].twinx()
-
+def plot_simulation_consistency(input_filenames, plot_options=None):
     df_list = []
     f_simulation = None
-    for i, fn in enumerate(out_filenames):
+    IV_query = None
+    IV_plot_callback = lambda fig, ax: None
+    IV = None
+    for i, fn in enumerate(input_filenames):
         df = pd.read_excel(fn)
         df = df[~pd.isna(df['flow2'])]
+        df.reset_index(inplace=True, drop=True)
         df['fn'] = fn.split('/')[-1].split('.')[0]
-        df['x'] = df['IV'] # + (df['gs'].astype(float) - 100)/20
-        df['y_inv'] = 1/df['y']
-        df['color'] = 'C' + (((df['gs'].astype(float) - 100)/20).astype(int)+1).astype(str)
-        df['other_properties'] = df['other_properties'].apply(ast.literal_eval)
-        df['other_properties_flow2'] = df['other_properties_flow2'].apply(ast.literal_eval)
-        # df['other_properties_flow2'] = df['other_properties_flow2'].apply(lambda x: ast.literal_eval if ~pd.isna(x) else defaultdict(lambda: np.nan))
-        # df[~pd.isna(df['other_properties_flow2'])]['other_properties_flow2'] = df[~pd.isna(df['other_properties_flow2'])]['other_properties_flow2'].apply(ast.literal_eval)
-        # df[ pd.isna(df['other_properties_flow2'])]['other_properties_flow2'] = defaultdict(lambda: np.nan)
-        df_list.append(df)
+        df['other_properties'] = df['other_properties']. \
+            str.replace('\n', '').str.replace('array([', '[', regex=False).str.replace('])', ']', regex=False).apply(
+            ast.literal_eval)
+        df['other_properties_flow2'] = df['other_properties_flow2']. \
+            str.replace('\n', '').str.replace('array([', '[', regex=False).str.replace('])', ']', regex=False).apply(
+            ast.literal_eval)
         f = None
         for k, part in enumerate(fn.split('-')):
             if part == 'f':
-                f = fn.split('-')[k+1]
-        if f is None or (f_simulation is not None and f != f_simulation):
+                f = fn.split('-')[k + 1]
+        if f is None or (f_simulation is not None and float(f) != f_simulation):
             raise RuntimeError("We have no simulation frequency")
         else:
-            f_simulation = float(f)
-    dfs = pd.concat(df_list)
+            if f_simulation is None:
+                f_simulation = float(f)
+            else:
+                # Not the first file
+                if float(f) != f_simulation:
+                    raise ValueError("Simulation frequencies {} and {} don't match".format(float(f), f_simulation))
+
+        if 'IV' in df['other_properties'].iloc[0]:
+            if IV is not None and IV != df['other_properties'].iloc[0]['IV']:
+                raise ValueError("IV's {} and {} not of same type".format(IV, df['other_properties'].iloc[0]['IV']))
+            IV = df['other_properties'].iloc[0]['IV']
+            if IV == 'gs':
+                df['trk_diff_uncorrected'] = np.abs(np.mod(df['trk_flow2'] - df['trk'], 360))
+                df['trk_diff'] = np.where(df['trk_diff_uncorrected'] > 180, 360 - df['trk_diff_uncorrected'],
+                                          df['trk_diff_uncorrected'])
+                df['x'] = (df[IV] - df[IV + '_flow2']).apply(lambda x: round(np.abs(x)))
+                IV_query = 'trk_diff>1'
+                IV_fancy_name = 'Groundspeed difference [kts]'
+            elif IV == 'lam':
+                df['trk_diff_uncorrected'] = np.abs(np.mod(df['trk_flow2'] - df['trk'], 360))
+                df['trk_diff'] = np.where(df['trk_diff_uncorrected'] > 180, 360 - df['trk_diff_uncorrected'],
+                                          df['trk_diff_uncorrected'])
+                df['lam'] = pd.json_normalize(df['other_properties'])['lam']
+                df['lam_flow2'] = pd.json_normalize(df['other_properties_flow2'])['lam']
+                # df['lam'] is in aircraft/timestep, so need to multiply with f_simulation to get aircraft/hr
+                df['x'] = (f_simulation * (df['lam'] + df['lam_flow2']) / 2).apply(round)
+                IV_fancy_name = 'Mean arrival rate $\lambda$ [aircraft/hr]'
+            elif IV == 'trk_diff':
+                df['trk_diff_uncorrected'] = np.abs(np.mod(df['trk_flow2'] - df['trk'], 360))
+                df['trk_diff'] = np.where(df['trk_diff_uncorrected'] > 180, 360 - df['trk_diff_uncorrected'],
+                                          df['trk_diff_uncorrected'])
+                df['x'] = (10 * np.round(df['trk_diff']/10.)).apply(round)
+                IV_query = 'abs_sin_rad_trk_diff>0.01'
+                IV_fancy_name = 'Angle between flows [$^\circ$]'
+                # IV_plot_callback = lambda fig, ax: ax[1].xaxis.set_major_locator(ticker.MultipleLocator(10))
+            else:
+                raise NotImplementedError()
+        else:
+            raise NotImplementedError("Need to specify IV_type in other_properties")
+        import warnings
+        if 'S_h' in df['other_properties'].iloc[0]:
+            df['S_h'] = df['other_properties'].iloc[0]['S_h']
+            warnings.warn("Using S_h={}".format(df['other_properties'].iloc[0]['S_h']))
+        else:
+            df['S_h'] = Aircraft.horizontal_separation_requirement
+            warnings.warn("Using default separation requirement of {}".format(Aircraft.horizontal_separation_requirement))
+
+        df_list.append(df)
+
+    dfs = pd.concat(df_list).reset_index(drop=True)
+
     # Only look at conflicts between flows:
 
-    dfs['abs_trk_diff_in_rad'] = np.abs(np.radians((dfs['trk_flow2']-dfs['trk'] + 360)%360))
+    dfs['abs_trk_diff_in_rad'] = np.abs(np.radians((dfs['trk_flow2'] - dfs['trk'] + 360) % 360))
     dfs['Vr,h'] = (dfs['gs'] ** 2 + dfs['gs_flow2'] ** 2 - 2 * dfs['gs'] * dfs['gs_flow2'] * np.cos(
         dfs['abs_trk_diff_in_rad'])) ** 0.5
 
-    from conflicts.simulate import Aircraft
-    def calculate_correction_factor(B1_exp, B2_exp):
-        g = Aircraft.horizontal_separation_requirement
-        h = Aircraft.vertical_separation_requirement
-        b = Aircraft.vertical_separation_requirement
+    dfs['abs_sin_rad_trk_diff'] = np.sin(dfs['abs_trk_diff_in_rad'])
 
-        # return 4 * g * h / (b * B1_exp * B2_exp)
-        return 2 * g / ( B1_exp * B2_exp)
+    dfs['conflictsph'] = dfs['y']  # /T_exp
 
-    # T_exp = n_aircraft_per_flow * horizontal_distance_exp / V_exp
-
-    dfs['conflictsph'] = dfs['y']# /T_exp
     dfs['lam'] = pd.json_normalize(dfs['other_properties'])['lam']
     dfs['lam_flow2'] = pd.json_normalize(dfs['other_properties_flow2'])['lam']
     B1_exp = dfs['gs'] / (dfs['lam'] * f_simulation)
     B2_exp = dfs['gs_flow2'] / (dfs['lam_flow2'] * f_simulation)
-    # B1_exp = horizontal_distance_exp
-    # B2_exp = horizontal_distance_exp
+    correction_factor = 2 * dfs['S_h'] / (B1_exp * B2_exp)
+    dfs['conflicts_predicted'] = (dfs['Vr,h'] / (np.sin(dfs['abs_trk_diff_in_rad']))) * correction_factor
+    dfs['observed/predicted'] = dfs['conflictsph'] / dfs['conflicts_predicted']
 
-    correction_factor = calculate_correction_factor(B1_exp, B2_exp)
+    if IV_query is not None:
+        dfs.query(IV_query, inplace=True)
+
+    fig, ax = plt.subplots(2, 1, figsize=(5, 10))
+
+    dfs.plot(kind='scatter', x='conflicts_predicted', y='conflictsph', ax=ax[0], c='C0', s=0.3, label="Simulations")
+    ax[0].set_xlabel("Predicted conflict rate [1/hr]")
+    ax[0].set_ylabel("Observed conflict rate [1/hr]")
+
+    ax0_xlims = ax[0].get_xlim()
+    ax0_ylims = ax[0].get_ylim()
+
+    ax0_lims = [
+        np.min([ax[0].get_xlim(), ax[0].get_ylim()]),  # min of both ax[0]es
+        np.max([ax[0].get_xlim(), ax[0].get_ylim()]),  # max[0] of both ax[0]es
+    ]
+
+    # now plot both limits against eachother
+    ax[0].plot(ax0_lims, ax0_lims, 'k--', label="Theoretical", alpha=0.75, zorder=0)
+    ax[0].set_xlim(ax0_xlims)
+    ax[0].set_ylim(ax0_ylims)
+    ax[0].legend()
+
+    dfs.boxplot(column='observed/predicted', by='x', ax=ax[1], rot=90)
+    ax[1].set_title('')
+    ax[1].set_ylabel('Observed/Predicted')
+    ax[1].set_xlabel(IV_fancy_name)
+    ax[1].axhline(y=1)
+    IV_plot_callback(fig, ax)
+    # dfs.boxplot sets the figure title but we do not want that
+    fig.suptitle('')
+
+    if plot_options is not None:
+        plot_type = plot_options['fn'].rsplit('.')[-1]
+        if plot_type == 'pgf':
+            matplotlib.use("pgf")
+            matplotlib.rcParams.update({
+                "pgf.texsystem": "pdflatex",
+                'font.family': 'serif',
+                'text.usetex': True,
+                'pgf.rcfonts': False,
+            })
+        fig.set_size_inches(**plot_options['size'])
+        fig.savefig(plot_options['fn'], bbox_inches='tight')
+        print("Saved output to {}".format(plot_options['fn']))
+
+        if plot_type != "pgf":
+            plt.show()
+
+    # Return dfs for possible usage
+    return dfs
 
 
-
-    # dfs['C'] = (dfs['Vr,h']/(dfs['gs'] * dfs['gs_flow2']*np.sin(dfs['abs_trk_diff_in_rad']))) * correction_factor
-    dfs['C'] = (dfs['Vr,h']/(np.sin(dfs['abs_trk_diff_in_rad']))) * correction_factor
-    dfs['abs_sin_rad_trk_diff'] = np.sin(dfs['abs_trk_diff_in_rad'])
-    dfs.query('abs_sin_rad_trk_diff>0.01', inplace=True)
-    dfs.plot(kind='scatter', x='x', y='conflictsph', ax=ax[0], label="Observed conflict rate", c='C0', s=0.3)
-    ax[0].set_xlabel("Angle between flows in deg")
-    ylim_observed = ax[0].get_ylim()
-
-
-    ax[0].legend(loc='upper left')
-    dfs.plot(kind='scatter', x='x', y='C', ax=ax[0], label="Predicted conflict rate", c='C1', s=0.3)
-    ax[0].set_ylim(ylim_observed)
-    # ax_twin.legend(loc='upper right')
-    # ax_twin.set_xlabel("Angle between flows in deg")
-
-    ax[0].set_ylabel("Conflict rate")
-    # ax_twin.set_ylabel("Predicted conflicts")
-    dfs.plot(kind='scatter', x='C', y='conflictsph', ax=ax[1], label="Obserfved Conflict rate", c='C0', s=0.3)
-    ax[1].set_xlabel("Predicted conflict rate")
-    ax[1].set_ylabel("Observed conflict rate")
-
-    dfs.plot(kind='scatter', x='C', y='x', ax=ax[2], label="Prediction", c='C1', s=0.3)
-    ax[2].set_ylabel("Angle between flows (deg)")
-
-    dfs['observed/predicted'] = dfs['conflictsph']/dfs['C']
-
-    dfs.plot(kind='scatter', x='x', y='observed/predicted', ax=ax[3], c='C1', s=0.3)
-
-    dfs.boxplot(column='observed/predicted', by='x', ax=ax[4])
-    ax4_twin = ax[4].twinx()
-
-    all_samples = dfs.groupby('x')['observed/predicted'].apply(lambda x: x.tolist()).to_dict()
-    from scipy import stats
-    df_ks2 = pd.DataFrame(
-        [(k, stats.ks_2samp(all_samples[k], dfs['observed/predicted']).pvalue) for k in all_samples.keys()],
-        columns=['angle', 'p'])
-    df_ks2['significantly_different_distribution_alpha_0.01'] = (df_ks2['p'] < 0.01).astype(int)
-    # df_ks2.plot.scatter(x='angle', y='significantly_different_distribution_alpha_0.01', ax=ax4_twin)
-    # plt.show()
-
-
-
-
-    # lgnd = plt.legend(scatterpoints=1, fontsize=10)
-    # for i in range(len(lgnd.legendHandles)):
-    #     lgnd.legendHandles[i]._sizes = [30]
-    plt.show()
+if __name__ == "__main__":
+    out_filenames = [  # 'data/simulated_conflicts/poisson-gs-80-100-120_trk-0-1-360_vs-0.xlsx',
+        # 'data/simulated_conflicts/poisson-f-3600-gs-100_trk-0-1-360_vs-0.xlsx',
+        # 'data/simulated_conflicts/poisson-choice-f-3600-gs-100_trk-0-1-360_vs-0.xlsx'
+        # 'data/simulated_conflicts/poisson-nochoice-f-3600-gs-100_trk-0-1-360_vs-0.xlsx'
+        # 'data/simulated_conflicts/poisson-nochoice-f-3600-gs-100_trk-0-1-360_vs-0-intended_sep-8nm.xlsx'
+        # 'data/simulated_conflicts/poisson-nochoice-f-3600-gs-100_trk-0-1-360_vs-0-intended_sep-8.5nm.xlsx'
+        # 'data/simulated_conflicts/poisson-25percentdeviation-f-3600-gs-100_trk-0-1-360_vs-0-intended_sep-8.5nm.xlsx'
+        # 'data/simulated_conflicts/poisson-25percentdeviation-f-3600-gs-100_trk-0-1-360_vs-0-intended_sep-8.5nm-measured-spawndistances.xlsx'
+        # 'data/simulated_conflicts/poisson-f-3600-gs-100-5-200_trk-0-30-120_vs-0.xlsx',
+        # 'data/simulated_conflicts/poisson-f-3600-gs-100-5-200_trk-0-30-120_vs-0-lam_based_on_V_exp_200.xlsx',
+        #  'data/simulated_conflicts/poisson-f-3600-gs-200-10-400_trk-0-30-120_vs-0-lam_based_on_V_exp_200.xlsx',
+        # 'data/simulated_conflicts/poisson-f-3600-gs-200-10-400_trk-0-30-120_vs-0-lam_based_on_V_exp_200-realisation-2.xlsx',
+        # 'data/simulated_conflicts/poisson-f-3600-gs-200-10-400_trk-0-30-120_vs-0-lam_based_on_V_exp_200-S_h-5nm.xlsx',
+        # 'data/simulated_conflicts/poisson-f-3600-gs-200_trk-0-30-120_vs-0-lam--1e-3--1e-3--1e-2.xlsx'
+    ]
+    # out_filenames = ['data/simulated_conflicts/'
+    #                  'poisson-f-3600-gs-200_trk-0-30-120_vs-0-acph-3-2-18-realisation-{}.xlsx'.format(realisation)
+    #                  for realisation in range(10)]
+    # out_filenames = [ 'data/simulated_conflicts/' \
+    #              'poisson-f-3600-gs-{}_trk-0-2.5-360_vs-0-acph-{}-realisation-{}.xlsx'.format(200, 15, realisation) for realisation in range(10)]
+    out_filenames = [ 'data/simulated_conflicts/' \
+                 'poisson-f-3600-gs-{}_trk-0-2.5-360_vs-0-acph-{}-R_{}nm-realisation-{}.xlsx'.format(200, 15, 200, r) for r in range(2)]
+    out_filenames = ['data/simulated_conflicts/poisson-f-3600-gs-100-5-200_trk-0-30-120_vs-0-acph-15-R_200nm-realisation-0.xlsx',
+                     'data/simulated_conflicts/poisson-f-3600-gs-100-5-200_trk-0-30-120_vs-0-acph-15-R_200nm-realisation-1.xlsx',
+    'data/simulated_conflicts/poisson-f-3600-gs-100-5-200_trk-0-30-120_vs-0-acph-15-R_200nm-realisation-2.xlsx']
+    plot_fn = 'pgf/varying_isolated_quantities/vary_trk_0_2.5_360-gs-{}-{}_realisations-{}_acph-R_{}nm.pgf'.format(
+        200, 200, 15, 200)
+    plot_options = {
+        'fn': plot_fn,
+        'size': {'w': 3.5, 'h': 6}
+    }
+    plot_options = None
+    dfs = plot_simulation_consistency(out_filenames, plot_options=plot_options)

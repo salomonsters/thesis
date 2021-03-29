@@ -142,13 +142,19 @@ def test_flow(caplog, aircraft_in_flow_list):
         assert ac[i].callsign == callsign[i]
         assert ac[i].active == active[i]
 
+    assert flow.previous_activated_callsign is None
+
     flow.activate('ac1')
     assert 'ac1 was already active' in caplog.text
     flow.activate('ac1', deactivate=True)
 
+    assert flow.previous_activated_callsign == 'ac1'
+
     flow.deactivate('ac3')
     assert 'ac3 was already inactive' in caplog.text
     flow.activate('ac3')
+
+    assert flow.previous_activated_callsign == 'ac3'
 
     flow.step(1)
     assert flow.position == approx(np.array([[0, 100], [101, 2], [-140, 20]]))
@@ -507,3 +513,41 @@ def test_calculate_horizontal_conflict(flows_on_collision):
     assert t_in_hor == approx(t_in_hor_numba, nan_ok=True)
     assert t_out_hor == approx(t_out_hor_numba, nan_ok=True)
     assert minimum_distance == approx(minimum_distance_numba, nan_ok=True)
+
+
+@pytest.fixture
+def aircraft_on_flow():
+    n = 10
+    # x0 = np.zeros((n,), dtype=float)
+    # y0 = 10*np.ones((n,), dtype=float)
+    flow_kwargs = {
+        'position': (0., 10.),
+        'trk': 180,
+        'gs': 50,
+        'alt': 2000,
+        'vs': 0,
+        'callsign': ['flow_{0}_ac_{1}'.format(180, i) for i in range(n)],
+        'active': False,
+        'other_properties':
+            {
+                'measured_distances_at_spawn': np.zeros((n, ), dtype=float)
+            }
+    }
+    flow = Flow.expand_properties(flow_kwargs)
+    return flow, flow_kwargs
+
+
+def test_distance_to_previous_in_flow(aircraft_on_flow):
+    flow, flow_kwargs = aircraft_on_flow
+    callsigns = flow_kwargs['callsign']
+    flows = CombinedFlows({'trk_180': flow})
+    assert flow.previous_activated_callsign is None
+    flow.activate(callsigns[0])
+    assert flow.previous_activated_callsign == callsigns[0]
+    activators = iter(np.array([0, 0, -1, 0, 0, 0], dtype=int))
+    sim = Simulation(flows, activators)
+    sim.simulate(f=4, T=1.26)
+    # flow.activate(callsigns[1])
+    assert sim.flows.flows['trk_180'].previous_activated_callsign == callsigns[3]
+    assert sim.flows.flows['trk_180'].other_properties['measured_distances_at_spawn'][:5] == approx([0, 12.5, 25, 12.5, 0])
+    assert flow_kwargs['other_properties']['measured_distances_at_spawn'] == approx(sim.flows.flows['trk_180'].other_properties['measured_distances_at_spawn'])

@@ -44,8 +44,7 @@ def parse_lat_lon(s):
     lon = float(lon_list[0]) + float(lon_list[1]) / 60 + float(lon_list[2]) / 3600
     if lon_list[3] == "W":
         lon = -1 * lon
-    # Lon, lat because of x, y
-    return lon, lat
+    return lat, lon
 
 
 def create_ctr(name, airspace_class="C", lower=0, upper=3000, centre=None, radius_in_nm=None, extra_points=None,
@@ -79,10 +78,10 @@ def create_ctr(name, airspace_class="C", lower=0, upper=3000, centre=None, radiu
         set_operation = "union"
     if centre and radius_in_nm is not None:
         radius = radius_in_nm / 60.040
-        lat = centre[1]
+        lat = centre[0]
         circ = Point(centre).buffer(radius)
         # We need to account for latitude correction
-        ctr = shapely.affinity.scale(circ, 1 / np.cos(np.deg2rad(lat)), 1)
+        ctr = shapely.affinity.scale(circ, 1, 1 / np.cos(np.deg2rad(lat)))
         geometry = ctr
     if extra_points:
         coordinate_strings = extra_points.splitlines()
