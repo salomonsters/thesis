@@ -29,7 +29,7 @@ def lambda_experiment(save_plot=False, do_calculations=True):
     for realisation in range(n_realisations):
 
         out_fn = 'data/simulated_conflicts/' \
-                 'poisson-f-3600-gs-{}_trk-0-30-120_vs-0-acph-3-2-18-R_{}nm-realisation-{}.xlsx'.format(gs, radius, realisation)
+                 'poisson-f-3600-gs-{}_trk-0-30-120_vs-0-acph-3-2-18-R_{}nm-realisation-{}{}.xlsx'.format(gs, radius, realisation, filename_suffix)
         filenames.append(out_fn)
         if do_calculations:
             flows_kwargs = OrderedDict()
@@ -67,7 +67,7 @@ def lambda_experiment(save_plot=False, do_calculations=True):
                                                  calculate_conflict_per_time_unit=calculate_conflict_rate)
             print("Saved realisation {} to {}".format(realisation, out_fn))
     if save_plot:
-        plot_fn = 'pgf/varying_isolated_quantities/lambda-{}-realisations_gs_{}-R_{}nm.{}'.format(n_realisations, gs, radius, save_plot)
+        plot_fn = 'pgf/varying_isolated_quantities/lambda-{}-realisations_gs_{}-R_{}nm{}.{}'.format(n_realisations, gs, radius, filename_suffix ,save_plot)
         plot_options = {
             'fn': plot_fn,
             'size': {'w': 3.5, 'h': 6}
@@ -81,7 +81,7 @@ def gs_experiment(save_plot=False, do_calculations=True):
     for realisation in range(n_realisations):
 
         out_fn = 'data/simulated_conflicts/' \
-                 'poisson-f-3600-gs-100-20-400_trk-0-30-120_vs-0-acph-{}-R_{}nm-realisation-{}.xlsx'.format(acph, radius, realisation)
+                 'poisson-f-3600-gs-100-20-400_trk-0-30-120_vs-0-acph-{}-R_{}nm-realisation-{}{}.xlsx'.format(acph, radius, realisation, filename_suffix)
         filenames.append(out_fn)
         if do_calculations:
             flows_kwargs = OrderedDict()
@@ -119,7 +119,7 @@ def gs_experiment(save_plot=False, do_calculations=True):
                                                  calculate_conflict_per_time_unit=calculate_conflict_rate)
             print("Saved realisation {} to {}".format(realisation, out_fn))
     if save_plot:
-        plot_fn = 'pgf/varying_isolated_quantities/vary_gs_100_20_400-{}_realisations-{}_acph-R_{}nm.{}'.format(n_realisations, acph, radius, save_plot)
+        plot_fn = 'pgf/varying_isolated_quantities/vary_gs_100_20_400-{}_realisations-{}_acph-R_{}nm{}.{}'.format(n_realisations, acph, radius, filename_suffix, save_plot)
         plot_options = {
             'fn': plot_fn,
             'size': {'w': 3.5, 'h': 6}
@@ -190,7 +190,7 @@ def separation_requirement_experiment(save_plot=False, do_calculations=True):
     for realisation in range(n_realisations):
 
         out_fn = 'data/simulated_conflicts/' \
-                 'poisson-f-3600-gs-100-20-400_trk-0-30-120_vs-0-acph-{}-R_{}nm-Sh_{}-realisation-{}.xlsx'.format(acph, radius, S_h, realisation)
+                 'poisson-f-3600-gs-100-20-400_trk-0-30-120_vs-0-acph-{}-R_{}nm-Sh_{}-realisation-{}{}.xlsx'.format(acph, radius, S_h, realisation, filename_suffix)
         filenames.append(out_fn)
         if do_calculations:
             flows_kwargs = OrderedDict()
@@ -230,7 +230,7 @@ def separation_requirement_experiment(save_plot=False, do_calculations=True):
     # Reset S_h
     conflicts.simulate.Aircraft.horizontal_separation_requirement = original_S_h
     if save_plot:
-        plot_fn = 'pgf/varying_isolated_quantities/vary_gs_100_20_400-{}_realisations-{}_acph-R_{}nm-Sh_{}.{}'.format(n_realisations, acph, radius, S_h, save_plot)
+        plot_fn = 'pgf/varying_isolated_quantities/vary_gs_100_20_400-{}_realisations-{}_acph-R_{}nm-Sh_{}{}.{}'.format(n_realisations, acph, radius, S_h, filename_suffix, save_plot)
         plot_options = {
             'fn': plot_fn,
             'size': {'w': 3.5, 'h': 6}
@@ -245,7 +245,7 @@ def flow_intersection_experiment(save_plot=False, do_calculations=True):
     for realisation in range(n_realisations):
 
         out_fn = 'data/simulated_conflicts/' \
-                 'poisson-f-3600-gs-{}_trk-0-2.5-360_vs-0-acph-{}-R_{}nm-realisation-{}.xlsx'.format(gs, acph, radius, realisation)
+                 'poisson-f-3600-gs-{}_trk-0-2.5-360_vs-0-acph-{}-R_{}nm-realisation-{}{}.xlsx'.format(gs, acph, radius, realisation, filename_suffix)
         filenames.append(out_fn)
         if do_calculations:
             flows_kwargs = OrderedDict()
@@ -282,7 +282,7 @@ def flow_intersection_experiment(save_plot=False, do_calculations=True):
                                                  calculate_conflict_per_time_unit=calculate_conflict_rate)
             print("Saved realisation {} to {}".format(realisation, out_fn))
     if save_plot:
-        plot_fn = 'pgf/varying_isolated_quantities/vary_trk_0_2.5_360-{}_realisations-gs_{}-{}_acph-R_{}nm.{}'.format(n_realisations, gs, acph, radius, save_plot)
+        plot_fn = 'pgf/varying_isolated_quantities/vary_trk_0_2.5_360-{}_realisations-gs_{}-{}_acph-R_{}nm{}.{}'.format(n_realisations, gs, acph, radius, filename_suffix, save_plot)
         plot_options = {
             'fn': plot_fn,
             'size': {'w': 3.5, 'h': 6}
@@ -297,11 +297,11 @@ if __name__ == "__main__":
     log = create_logger(verbose=True)
     kwargs = {"save_plot": "eps", "do_calculations": True}
     jobs = [
-        # lambda_experiment,
-        #gs_experiment,
+        lambda_experiment,
+        gs_experiment,
         gs_experiment_lower_V,
-        # flow_intersection_experiment,
-        # separation_requirement_experiment
+        flow_intersection_experiment,
+        separation_requirement_experiment
     ]
     for job in jobs:
         log("Starting {}".format(job))

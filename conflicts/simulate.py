@@ -2,6 +2,7 @@ import itertools
 import logging
 from collections import OrderedDict
 from numbers import Number
+import warnings
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -508,7 +509,7 @@ class Simulation:
                         callsign = next(self.flows.flows[self.flows.flow_keys[flow_i]].inactive_callsigns)
                         print("At T={:>.4f}: activating aircraft {}".format(self.t, callsign))
                     except StopIteration:
-                        print("At T={:>.4f}: Couldn't fire flow {}: all aircraft are active".format(self.t, flow_i))
+                        warnings.warn("At T={:>.4f}: Couldn't fire flow {}: all aircraft are active".format(self.t, flow_i))
                         self.flow_exhausted[flow_i] = True
                         continue
 
