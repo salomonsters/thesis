@@ -355,7 +355,7 @@ def test_simulation_results(flows_on_collision, aircraft_on_collision):
     assert sim.aggregated_conflicts == {
         'flow1': 0,
         'flow2': 0,
-        'flow3': 4,
+        'flow3': 2,
         ('flow1', 'flow2'): 3,
         ('flow1', 'flow3'): 1,
         ('flow2', 'flow3'): 1
@@ -377,7 +377,7 @@ def test_simulation_results_within_conflict_window(flows_on_collision, aircraft_
     assert sim.aggregated_conflicts == {
         'flow1': 0,
         'flow2': 0,
-        'flow3': 2/0.2,
+        'flow3': 1/0.2,
         ('flow1', 'flow2'): 0,
         ('flow1', 'flow3'): 0,
         ('flow2', 'flow3'): 0
@@ -386,7 +386,7 @@ def test_simulation_results_within_conflict_window(flows_on_collision, aircraft_
     assert sim.aggregated_conflicts == {
         'flow1': 0,
         'flow2': 0,
-        'flow3': 2,
+        'flow3': 1,
         ('flow1', 'flow2'): 0,
         ('flow1', 'flow3'): 0,
         ('flow2', 'flow3'): 0

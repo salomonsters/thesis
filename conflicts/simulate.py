@@ -70,7 +70,7 @@ class Aircraft:
         dt = Aircraft.dtype(dt)
         return dt
 
-    def step(self, dt):
+    def step(self, dt, t=None):
         dt = self.convert_dt(dt)
         if self.active:
             self.position += self.v * dt
@@ -135,9 +135,10 @@ class Flow:
         self.aircraft = [AircraftInFlow(i, self.position, self.trk, self.gs, self.alt, self.vs, self.callsign,
                                         self.active) for i in self.index]
         if calculate_collisions:
-            self.collisions = np.empty((self.n, self.n), dtype=bool)
+            self.collisions = np.zeros((self.n, self.n), dtype=bool)
         self.calculate_collisions = calculate_collisions
-        self.conflicts = np.empty((self.n, self.n), dtype=bool)
+        self.conflicts = np.zeros((self.n, self.n), dtype=bool)
+        self.conflict_now_or_in_past = np.zeros((self.n, self.n), dtype=bool)
         self.within_flow_active_conflicts = np.zeros(self.n, dtype=bool)
         self.all_conflicts = np.zeros(self.n, dtype=bool)
 
@@ -198,7 +199,7 @@ class Flow:
     def deactivate(self, callsign):
         return self.activate(callsign, True)
 
-    def step(self, dt, update_conflicts=True):
+    def step(self, dt, update_conflicts=True, t=None):
         dt = Aircraft.convert_dt(dt)
         self.position[self.active] += self.v[self.active] * dt
         self.alt[self.active] += self.vs_fph[self.active] * dt
@@ -213,7 +214,8 @@ class Flow:
                 if i != j:
                     self.collisions[i, j] = self.collisions[j, i] = self.aircraft[i] & self.aircraft[j]
 
-        self.conflicts[:, :] = conflicts_between_multiple(self, t_lookahead=self.t_lookahead)
+        conflicts_between_multiple(self, t_lookahead=self.t_lookahead, out=self.conflicts)
+        self.conflict_now_or_in_past[:] = self.conflict_now_or_in_past | self.conflicts
         self.within_flow_active_conflicts[:] = self.conflicts.sum(axis=1)
         self.all_conflicts[:] = self.all_conflicts | self.within_flow_active_conflicts
 
@@ -261,7 +263,7 @@ class CombinedFlows:
 
     def _update_conflicts(self):
         for flow in self.flow_keys:
-            self.active_conflicts_within_flow_or_between_flows[flow][:] = False
+            self.active_conflicts_within_flow_or_between_flows[flow][:] = self.flows[flow].within_flow_active_conflicts
         for flow_a, flow_b in self.flow_key_pairs:
             conflicts_between_multiple(self.flows[flow_a], self.flows[flow_b], t_lookahead=self.t_lookahead,
                                        out=self.current_conflict_state[(flow_a, flow_b)])
@@ -269,10 +271,10 @@ class CombinedFlows:
             self.active_conflicts_within_flow_or_between_flows[flow_b][:] = self.flows[flow_b].within_flow_active_conflicts | self.current_conflict_state[(flow_a, flow_b)].sum(axis=0) | self.active_conflicts_within_flow_or_between_flows[flow_b]
             self.all_conflicts[(flow_a, flow_b)][:, :] = self.current_conflict_state[(flow_a, flow_b)] | self.all_conflicts[(flow_a, flow_b)]
 
-    def step(self, dt, update_conflicts=True):
+    def step(self, dt, update_conflicts=True, t=None):
         dt = Aircraft.convert_dt(dt)
         for k in self.flow_keys:
-            self.flows[k].step(dt, update_conflicts)
+            self.flows[k].step(dt, update_conflicts, t)
         if update_conflicts:
             self._update_conflicts()
 
@@ -353,6 +355,13 @@ def calculate_horizontal_conflict(shape0, shape1, own_active, other_active, own_
 def conflicts_between_multiple(own: Flow, other: Flow=None, t_lookahead=5. / 60, out=None):
     if other is None:
         other = own
+    if not np.any(own.active) and not np.any(other.active):
+        if out is None:
+            out = np.zeros((own.n, other.n), dtype=bool)
+            return out
+        else:
+            out[:, :] = False
+            return
     t_in_hor = np.zeros((own.n, other.n), dtype=Aircraft.dtype)
     t_out_hor = np.zeros((own.n, other.n), dtype=Aircraft.dtype)
     minimum_distance = np.zeros((own.n, other.n), dtype=Aircraft.dtype)
@@ -363,8 +372,6 @@ def conflicts_between_multiple(own: Flow, other: Flow=None, t_lookahead=5. / 60,
         horizontal_conflict = (minimum_distance < Aircraft.horizontal_separation_requirement) \
                               & (t_out_hor > 0)\
                               & (t_in_hor < t_lookahead)
-
-    # both_active = np.expand_dims(own.active, 1) & np.expand_dims(other.active, 0)
 
     vs_rel_fph = -(np.expand_dims(own.vs_fph, 1) - np.expand_dims(other.vs_fph, 0))
     alt_diff = np.expand_dims(own.alt, 1) - np.expand_dims(other.alt, 0)
@@ -451,9 +458,13 @@ class Simulation:
             stop_condition = stop_condition_function(self, T)
         if self.plot_frequency is not None:
             relative_plot_frequency = f // self.plot_frequency
+            if relative_plot_frequency == 0:
+                relative_plot_frequency = 1
             self.prepare_plot()
         if conflict_frequency is not None:
             relative_conflict_frequency = f // conflict_frequency
+            if relative_conflict_frequency == 0:
+                relative_conflict_frequency = 1
         else:
             relative_conflict_frequency = 1
 
@@ -468,7 +479,7 @@ class Simulation:
             self.fire_activators()
             update_conflicts = (self.i % relative_conflict_frequency == 0) & \
                                (self.t >= T_conflict_start) & (self.t <= T_conflict_end)
-            self.flows.step(dt, update_conflicts=update_conflicts)
+            self.flows.step(dt, update_conflicts=update_conflicts, t=self.t)
 
             if self.plot_frequency is not None and self.i % relative_plot_frequency == 0:
                 self.plot_in_loop()
@@ -537,7 +548,9 @@ class Simulation:
         divisor = 1
         if self.calculate_conflict_per_time_unit:
             divisor = self.conflict_divisor
-        aggregated_conflicts = {k: np.sum(self.flows[k].all_conflicts)/divisor for k in self.flows.flow_keys}
+        # Within-flow active conflicts gives conflict pairs sum, so only triu/tril values are counted.
+        # For between-flow conflicts the flow key pairs are already unique, so we need the whole matrix
+        aggregated_conflicts = {k: np.triu(self.flows[k].conflict_now_or_in_past).sum() / divisor for k in self.flows.flow_keys}
         aggregated_conflicts.update({k: np.sum(self.flows.all_conflicts[k])/divisor for k in self.flows.flow_key_pairs})
         return aggregated_conflicts
 
@@ -636,7 +649,7 @@ if __name__ == "__main__":
     # activators[:, 0] = True
     had_exception = False
     try:
-        sim = Simulation(flows, True, plot_frequency=f_plot, calculate_conflict_per_time_unit=calculate_conflict_rate)
+        sim = Simulation(flows, None, plot_frequency=f_plot, calculate_conflict_per_time_unit=calculate_conflict_rate)
         sim.activators = activators(sim, use_poisson=True)
         sim.simulate(f_simulation, conflict_frequency=f_conflict, stop_condition=stop_condition(sim), T_conflict_window=[1, 3])
         # sim.simulate(f_simulation, T)
