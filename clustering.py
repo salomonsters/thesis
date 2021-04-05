@@ -363,95 +363,98 @@ def when_everything_within_interval(W_ii, W):
 if __name__ == "__main__":
     verbose = True
     airspace_query = "airport=='EHAM'"
-    data_date = '20180101'
-    minalt = 200  # ft
-    maxalt = 10000
-    e_mean = 0.4
-    e_var = 1
-    min_cluster_size = 3
-    n_data_points = 200
-    fields = ['lat', 'lon']
-    K = 6
-    plot_individual_clusters = True
-    use_plot_titles = True
-    show_plots = True
-    # stop_function = lambda X, Y: np.mean(X) > .4
-    stop_function = when_everything_within_interval
+    data_dates = ['20180101', '20180102', '20180104', '20180105']
+    for split in range(1):
+        split_suffix = "_split_{}".format(split)
+        # in_filenames = ['data/adsb_decoded_in_eham_combined/ADSB_DECODED_{0}.csv.gz'.format(data_date) for data_date in data_dates]
+        in_filenames = ['data/adsb_decoded_in_eham_combined/{0}{1}.csv.gz'.format("-".join(data_dates), split_suffix)]
+        minalt = 200  # ft
+        maxalt = 10000
+        e_mean = 0.4
+        e_var = 1
+        min_cluster_size = 3
+        n_data_points = 200
+        fields = ['lat', 'lon']
+        K = 6
+        plot_individual_clusters = False
+        use_plot_titles = False
+        show_plots = False
+        # stop_function = lambda X, Y: np.mean(X) > .4
+        stop_function = when_everything_within_interval
 
-    one_matrix_shape = n_data_points, len(fields)
-    airspace = ehaa_airspace.query(airspace_query)
+        one_matrix_shape = n_data_points, len(fields)
+        airspace = ehaa_airspace.query(airspace_query)
 
-    visualisation = VisualiseClustering(airspace, save_path='./figures/eham_{date}_{{0}}.png'.format(date=data_date),
-                                        intermediate_results=plot_individual_clusters, use_titles=use_plot_titles,
-                                        show=show_plots)
-    machine_precision = np.finfo(np.float64).eps
+        visualisation = VisualiseClustering(airspace, save_path='./figures/eham_{date}_{{0}}.png'.format(date="-".join(data_dates)+split_suffix),
+                                            intermediate_results=plot_individual_clusters, use_titles=use_plot_titles,
+                                            show=show_plots)
+        machine_precision = np.finfo(np.float64).eps
 
-    log = create_logger(verbose, "Clustering")
-    log("Start reading csv")
+        log = create_logger(verbose, "Clustering")
+        log("Start reading csv")
 
-    # #### SINGLE FILENAME
-    df = pd.read_csv(
-        'data/adsb_decoded_in_eham/ADSB_DECODED_{0}.csv.gz'.format(data_date))  # , converters={'callsign': lambda s: s.replace('_', '')})
-    df.sort_values(by=['fid', 'ts'], inplace=True)
+        # #### SINGLE FILENAME
+        df = pd.concat([pd.read_csv(fn) for fn in in_filenames])
 
-    # #### ENTIRE DIRECTORY
-    # path = './data/adsb_decoded_in_eham/'
-    # max_number_of_files = 20
-    # df = pd.concat(map(pd.read_csv, glob.glob(os.path.join(path, "*.csv.gz"))[:max_number_of_files]))
-    log("Completed reading CSV")
+        # #### ENTIRE DIRECTORY
+        # path = './data/adsb_decoded_in_eham/'
+        # max_number_of_files = 20
+        # df = pd.concat(map(pd.read_csv, glob.glob(os.path.join(path, "*.csv.gz"))[:max_number_of_files]))
+        log("Completed reading CSV")
+        df.sort_values(by=['fid', 'ts'], inplace=True)
 
-    orig_df = copy.deepcopy(df)
+        orig_df = copy.deepcopy(df)
 
-    if minalt is not None:
-        df = df[df['alt'] > minalt]
-    if maxalt is not None:
-        df = df[df['alt'] < maxalt]
+        if minalt is not None:
+            df = df[df['alt'] > minalt]
+        if maxalt is not None:
+            df = df[df['alt'] < maxalt]
 
-    x, fid_list, discarded_fids = Clustering.scale_and_average_df_numba_wrapper(df, n_data_points, fields,
-                                                                                alt_conversion=3 * 1852 * 0.3048 / 2)
+        x, fid_list, discarded_fids = Clustering.scale_and_average_df_numba_wrapper(df, n_data_points, fields,
+                                                                                    alt_conversion=3 * 1852 * 0.3048 / 2)
 
-    log("Threw away {0} fid's that had less than {1} rows".format(len(discarded_fids), n_data_points))
+        log("Threw away {0} fid's that had less than {1} rows".format(len(discarded_fids), n_data_points))
 
-    visualisation.plot_means(None, x.reshape((-1, x.shape[2])), title='All tracks', fname_arg='00_unclustered')
-    log("Converted coordinates, Queued adjacency matrix calculation")
+        visualisation.plot_means(None, x.reshape((-1, x.shape[2])), title='All tracks', fname_arg='00_unclustered')
+        log("Converted coordinates, Queued adjacency matrix calculation")
 
-    clustering = Clustering(x, K, e_mean, e_var, min_cluster_size, stop_function=stop_function, visualisation=visualisation)
-    W = clustering.calculate_adjacency()
-    log("Calculated adjacency matrix")
-    clustering.spectral_cluster(W)
-    log("Finished spectral_cluster")
-    cluster_result = clustering.result_indices
-    n_clusters = clustering.n_clusters
+        clustering = Clustering(x, K, e_mean, e_var, min_cluster_size, stop_function=stop_function, visualisation=visualisation)
+        W = clustering.calculate_adjacency()
+        log("Calculated adjacency matrix")
+        clustering.spectral_cluster(W)
+        log("Finished spectral_cluster")
+        cluster_result = clustering.result_indices
+        n_clusters = clustering.n_clusters
 
-    fid_to_cluster_map = {fid_list[i]: c_r for i, c_r in enumerate(cluster_result)}
-    df.query('fid not in @discarded_fids', inplace=True)
-    df['cluster'] = df['fid'].map(fid_to_cluster_map)
-    log("Determined fid_to_cluster_map")
-    log("{0} clusters found (e_mean={1}, e_var={2})".format(clustering.n_clusters, e_mean, e_var))
+        fid_to_cluster_map = {fid_list[i]: c_r for i, c_r in enumerate(cluster_result)}
+        df.query('fid not in @discarded_fids', inplace=True)
+        df['cluster'] = df['fid'].map(fid_to_cluster_map)
+        log("Determined fid_to_cluster_map")
+        log("{0} clusters found (e_mean={1}, e_var={2})".format(clustering.n_clusters, e_mean, e_var))
 
-    cluster_to_fid_map = Clustering.inverse_map(fid_to_cluster_map)
-    fid_to_index_map = {v: k for k, v in enumerate(fid_list)}
-    tracks_means = []
-    noise = None
-    n_noise = None
-    # Sort from largest to smallest cluster
-    for key, fids in sorted(cluster_to_fid_map.items(), key=lambda a: len(a[1]))[::-1]:
-        tracks_concat_index = np.array([fid_to_index_map[fid] for fid in fids])
-        tracks_concat = x[tracks_concat_index]
-        if key == -1:
-            log("Couldn't cluster {0} tracks".format(len(tracks_concat_index)))
-            n_noise = len(tracks_concat_index)
-            noise = tracks_concat.reshape((-1, x.shape[2]))
-            continue
-        tracks_mean = tracks_concat.mean(axis=0)
-        tracks_means.append(tracks_mean)
-    visualisation.plot_means(np.vstack(tracks_means), noise,
-                             title='Cluster means (blue) and unclustered tracks (orange)',
-                             fname_arg='AA_results_and_noise')
-    del visualisation
-    with open('data/clustered/eham_{0}.csv'.format(data_date), 'w') as fp:
-        parameters = {"K": K, "e_mean": e_mean, "e_var": e_var, "n_tracks_clustered": n_clusters,
-                      "n_unclustered": n_noise}
-        fp.write(repr(parameters))
-        fp.write("\n")
-        df.to_csv(fp)
+        cluster_to_fid_map = Clustering.inverse_map(fid_to_cluster_map)
+        fid_to_index_map = {v: k for k, v in enumerate(fid_list)}
+        tracks_means = []
+        noise = None
+        n_noise = None
+        # Sort from largest to smallest cluster
+        for key, fids in sorted(cluster_to_fid_map.items(), key=lambda a: len(a[1]))[::-1]:
+            tracks_concat_index = np.array([fid_to_index_map[fid] for fid in fids])
+            tracks_concat = x[tracks_concat_index]
+            if key == -1:
+                log("Couldn't cluster {0} tracks".format(len(tracks_concat_index)))
+                n_noise = len(tracks_concat_index)
+                noise = tracks_concat.reshape((-1, x.shape[2]))
+                continue
+            tracks_mean = tracks_concat.mean(axis=0)
+            tracks_means.append(tracks_mean)
+        visualisation.plot_means(np.vstack(tracks_means), noise,
+                                 title='Cluster means (blue) and unclustered tracks (orange)',
+                                 fname_arg='AA_results_and_noise')
+        del visualisation
+        with open('data/clustered/eham_{0}.csv'.format("-".join(data_dates)+split_suffix), 'w') as fp:
+            parameters = {"K": K, "e_mean": e_mean, "e_var": e_var, "n_tracks_clustered": n_clusters,
+                          "n_unclustered": n_noise}
+            fp.write(repr(parameters))
+            fp.write("\n")
+            df.to_csv(fp)
