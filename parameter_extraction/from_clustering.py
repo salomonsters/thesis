@@ -58,19 +58,24 @@ def consecutive_string_lengths(condition):
 def overlap_type(condition):
     # https://stackoverflow.com/a/24343375
     where_array = np.where(np.concatenate(([condition[0]],condition[:-1] != condition[1:],[True])))[0]
-    if where_array.shape[0] == 1 and np.all(~condition):
+    assert where_array.shape[0] > 1
+    if where_array.shape[0] == 2 and np.all(condition):
         return 'all'
-    elif where_array[0] == 0 and where_array[1] > n_data_points*0.15:
+    elif where_array[0] == 0 and where_array.shape[0] == 3 and where_array[2] == n_data_points: # where_array[1] > n_data_points*0.15:
         return 'begin'
-    elif where_array.shape[0] % 2 == 0 and where_array[-2] > n_data_points*0.5 and where_array[-1] == n_data_points:
-        if where_array.shape[0] == 2:
-            return 'merge'
-            # return np.atleast_1d(where_array[-2])
-        else:
-            return 'multiple_cross'
-    else:
-        return 'single_cross'
-        # return where_array[:-1]
+
+    return 'other'
+
+    # return where_array[0]
+    # elif where_array.shape[0] % 2 == 0 and where_array[-2] > n_data_points*0.5 and where_array[-1] == n_data_points:
+    #     if where_array.shape[0] == 2:
+    #         return 'merge'
+    #         # return np.atleast_1d(where_array[-2])
+    #     else:
+    #         return 'multiple_cross'
+    # else:
+    #     return 'single_cross'
+    #     # return where_array[:-1]
 
 def overlap(left, right):
     if left['cluster'] == right['cluster']:
@@ -81,7 +86,7 @@ def overlap(left, right):
 
     h_distances = np.linalg.norm(left.mean_track - right.mean_track, axis=1)
 
-    if not np.any(within_S_h := h_distances <= S_h):
+    if not np.any(within_S_h := h_distances <= S_h) or not np.any(within_S_h & within_S_v):
         return 'none'
     # consecutive_lengths = consecutive_string_lengths(within_S_h & within_S_v)
     return overlap_type(within_S_h & within_S_v)
@@ -253,9 +258,12 @@ if __name__ == "__main__":
     combined_df_all = pd.concat(combined_df_list)
     # combined_df_all.query('conflicts_predicted<3', inplace=True)
     # high_conflicts = combined_df.query('type=="between"').sort_values('conflicts_per_active_hr')[-100:]
-    ax = combined_df_all.boxplot(column='conflicts_per_active_hr', by='overlap_type', vert=False)
-    plt.subplots_adjust(left=0.2)
-    ax.set_xlabel("Conflicts_per_active_hr [1/h]")
+    fig, ax = plt.subplots(2, 1)
+    combined_df_all.groupby('overlap_type')['conflicts'].sum().plot.barh(ax=ax[0])
+    ax[0].set_xlabel("Sum of conflicts")
+    combined_df_all.boxplot(column='conflicts_per_active_hr', by='overlap_type', vert=False, ax=ax[1])
+    # plt.subplots_adjust(left=0.2)
+    ax[1].set_xlabel("Conflicts_per_active_hr [1/h]")
     plt.show()
     if False:
         from sklearn.linear_model import LinearRegression
