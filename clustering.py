@@ -162,10 +162,12 @@ class Clustering:
         assert not array_equal(original_indices[i_r], original_indices)
 
         if self.visualisation:
-            title = "green: n={0}, mean={1:.4f}, var={2:.4f}; ".format(len(i_l), np.mean(W_il_il),
-                                                                      np.var(W_il_il) / np.var(W)) + \
-                    "red: n={0}, mean={1:.4f}, var={2:.4f}".format(len(i_r), np.mean(W_ir_ir),
-                                                                      np.var(W_ir_ir) / np.var(W))
+            title = "green: n={0}, mean={1:.4f}, std={2:.4f}; ".format(len(i_l), np.mean(get_non_diagonal_elements(W_il_il)),
+                                                                      np.std(get_non_diagonal_elements(W_il_il))) + \
+                    "red: n={0}, mean={1:.4f}, std={2:.4f}".format(len(i_r), np.mean(get_non_diagonal_elements(W_ir_ir)),
+                                                                      np.std(get_non_diagonal_elements(W_ir_ir))) + \
+                    "total: n={0}, mean={1:.4f}, std={2:.4f}".format(len(i_l) + len(i_r), np.mean(get_non_diagonal_elements(W)),
+                                                                   np.std(get_non_diagonal_elements(W)))
             self.visualisation.intermediate_result(self.x[original_indices[i_l]], self.x[original_indices[i_r]], title,
                                                    fname_arg=recursion)
         if self.stop_function(W_il_il, W) or len(i_l) < self.min_cluster_size:
@@ -175,8 +177,8 @@ class Clustering:
                 self.n_clusters += 1
                 self.result_indices[original_indices[i_l]] = self.n_clusters
                 if self.visualisation:
-                    title = "n={0}, mean={1:.4f}, var={2:.4f}".format(len(i_l), np.mean(W_il_il),
-                                                                      np.var(W_il_il) / np.var(W))
+                    title = "n={0}, mean={1:.4f}, std={2:.4f}".format(len(i_l), np.mean(get_non_diagonal_elements(W_il_il)),
+                                                                      np.std(get_non_diagonal_elements(W_il_il)))
                     self.visualisation.plot_cluster(self.x[original_indices[i_l]], title,
                                                     fname_arg="{0}_A_{1}".format(recursion, self.n_clusters), is_intermediate=True)
         else:
@@ -188,8 +190,8 @@ class Clustering:
                 self.n_clusters += 1
                 self.result_indices[original_indices[i_r]] = self.n_clusters
                 if self.visualisation:
-                    title = "n={0}, mean={1:.4f}, var={2:.4f}".format(len(i_r), np.mean(W_ir_ir),
-                                                                      np.var(W_ir_ir) / np.var(W))
+                    title = "n={0}, mean={1:.4f}, std={2:.4f}".format(len(i_r), np.mean(get_non_diagonal_elements(W_ir_ir)),
+                                                                      np.std(get_non_diagonal_elements(W_ir_ir)))
                     self.visualisation.plot_cluster(self.x[original_indices[i_r]], title,
                                                     fname_arg="{0}_B_{1}".format(recursion, self.n_clusters), is_intermediate=True)
         else:
@@ -356,7 +358,10 @@ def get_non_diagonal_elements(square_matrix):
 def when_everything_within_interval(W_ii, W):
     W_ii = get_non_diagonal_elements(W_ii)
     W = get_non_diagonal_elements(W)
-    return W.mean() > 0.4 and np.all(W_ii.min(axis=1) > W.mean() - W.std())
+    # if W_ii.shape[0] < 15:
+    #     return True
+    # return W.mean() > 0.4 and np.sum(W_ii.min(axis=1) < W.mean() - W.std()) < 2
+    return W_ii.mean() - W_ii.std() > 0.28
 
 
 
@@ -368,7 +373,7 @@ if __name__ == "__main__":
     maxalt = 10000
     e_mean = 0.4
     e_var = 1
-    min_cluster_size = 3
+    min_cluster_size = 10
     n_data_points = 200
     fields = ['lat', 'lon']
     K = 8

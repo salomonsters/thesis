@@ -78,6 +78,16 @@ def overlap_type(condition):
     #     return 'single_cross'
     #     # return where_array[:-1]
 
+def index_of_closest_point(row):
+    v_diff = row['mean_alt_i'] - row['mean_alt_j']
+    within_S_v = np.abs(v_diff <= S_v)
+    assert np.any(within_S_v), "index_of_closest_points should be called on a row where there is overlap"
+
+    h_distances = np.linalg.norm(row['mean_track_i'] - row['mean_track_j'], axis=1)
+    h_distances_masked = np.ma.masked_array(h_distances, mask=~within_S_v)
+    return h_distances_masked.argmin()
+
+
 def overlap(left, right):
     if left['cluster'] == right['cluster']:
         return ('same', None)
@@ -146,6 +156,7 @@ if __name__ == "__main__":
     if timeshift is not None:
         timeshift_suffix = '-timeshift-uniform-0-{}'.format(timeshift)
     use_weighted_least_squares = False
+    calculate_V_rel_method = 'first' # 'closest' or 'first'
 
     replay_results_file = 'data/conflict_replay_results/eham_stop_mean_std_0.28_20180101-20180102-20180104-20180105-splits_[0-1-2-3]-S_h-{}-S_v-{}-t_l-0.1667{}.xlsx'.format(S_h_in_nm, S_v, timeshift_suffix)
     replay_df_all_splits = pd.read_excel(replay_results_file)
@@ -261,6 +272,12 @@ if __name__ == "__main__":
             #     shape = ovl_type.shape[0]
             #     if shape <= 2:
             if not pd.isna(at := combined_df.loc[i]['first_overlap_index']):
+                    if calculate_V_rel_method == 'closest':
+                        at = index_of_closest_point(combined_df.loc[i])
+                    elif calculate_V_rel_method == 'first':
+                        pass
+                    else:
+                        raise ValueError("calculate_V_rel_method should be 'closest' or 'first'")
                     V_rel_corr_result = calculate_V_rel_corrected_at(combined_df.loc[i], at)
                     for k, col in enumerate(['V_rel', 'V_rel_corr', 'trk_diff', 'gs_i', 'gs_j', 'hourly_arrival_rates_prod']):
                         combined_df.at[i, col] = V_rel_corr_result[k]
