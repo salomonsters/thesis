@@ -12,10 +12,10 @@ from pint import UnitRegistry, Quantity
 
 ureg = UnitRegistry()
 
+S_h = 3 # nm
+S_v = 1000 # ft
 
 class Aircraft:
-    horizontal_separation_requirement = 3  # nm
-    vertical_separation_requirement = 1000  # ft
     dtype = float
     vx, vy, v = None, None, None
 
@@ -24,6 +24,9 @@ class Aircraft:
             self.position = position
         else:
             self.position = np.array(position, dtype=self.dtype)  # nm
+        global S_h, S_v
+        self.horizontal_separation_requirement = S_h  # nm
+        self.vertical_separation_requirement = S_v  # ft
         self._gs = gs  # knots
         self._trk = trk  # degrees
         self._trk_rad = np.radians(trk)
@@ -292,12 +295,12 @@ def conflict_between(own: Aircraft, intruder: Aircraft, t_lookahead=5./60):
         t_horizontal_conflict = (np.inner(x_rel, v_rel) +
                                  np.array((-1, 1)) * np.sqrt(
                     np.inner(x_rel, v_rel)**2 - norm(x_rel)**2*norm(v_rel)**2+norm(v_rel)**2
-                    * Aircraft.horizontal_separation_requirement**2)
+                    * S_h**2)
                                  )/(norm(v_rel)**2)
         t_cpa = np.sum(t_horizontal_conflict)/2.
         minimum_distance = norm(t_cpa*v_rel - x_rel)
         t_in_hor, t_out_hor = min(t_horizontal_conflict), max(t_horizontal_conflict)
-        horizontal_conflict = minimum_distance < Aircraft.horizontal_separation_requirement \
+        horizontal_conflict = minimum_distance < S_h \
                               and t_out_hor > 0\
                               and t_in_hor < t_lookahead
         if not horizontal_conflict:
@@ -307,11 +310,11 @@ def conflict_between(own: Aircraft, intruder: Aircraft, t_lookahead=5./60):
         alt_diff = intruder.alt - own.alt
 
         if np.abs(vs_rel_fph) < 1e-8:
-            if np.abs(alt_diff) < Aircraft.vertical_separation_requirement:
+            if np.abs(alt_diff) < S_v:
                 # We have a horizontal conflict and we are flying level at conflicting altitudes, so we have a conflict
                 return True
 
-        t_vertical_conflict = (intruder.alt - own.alt + np.array((-1, 1))*Aircraft.vertical_separation_requirement
+        t_vertical_conflict = (intruder.alt - own.alt + np.array((-1, 1))*S_v
                                )/vs_rel_fph
         t_in_vert, t_out_vert = min(t_vertical_conflict), max(t_vertical_conflict)
 
@@ -355,7 +358,7 @@ def calculate_horizontal_conflict(shape0, shape1, own_active, other_active, own_
 def conflicts_between_multiple(own: Flow, other: Flow=None, t_lookahead=5. / 60, out=None):
     if other is None:
         other = own
-    if not np.any(own.active) and not np.any(other.active):
+    if np.sum(own.active) + np.sum(other.active) <= 1:
         if out is None:
             out = np.zeros((own.n, other.n), dtype=bool)
             return out
@@ -366,24 +369,24 @@ def conflicts_between_multiple(own: Flow, other: Flow=None, t_lookahead=5. / 60,
     t_out_hor = np.zeros((own.n, other.n), dtype=Aircraft.dtype)
     minimum_distance = np.zeros((own.n, other.n), dtype=Aircraft.dtype)
     calculate_horizontal_conflict(own.n, other.n, own.active, other.active, own.position, other.position, own.v, other.v,
-                                  Aircraft.horizontal_separation_requirement ** 2,
+                                  S_h ** 2,
                                   t_in_hor, t_out_hor, minimum_distance)
     with np.errstate(invalid='ignore'):
-        horizontal_conflict = (minimum_distance < Aircraft.horizontal_separation_requirement) \
+        horizontal_conflict = (minimum_distance < S_h) \
                               & (t_out_hor > 0)\
                               & (t_in_hor < t_lookahead)
 
     vs_rel_fph = -(np.expand_dims(own.vs_fph, 1) - np.expand_dims(other.vs_fph, 0))
     alt_diff = np.expand_dims(own.alt, 1) - np.expand_dims(other.alt, 0)
     with np.errstate(divide='ignore'):
-        t_vertical_conflict = np.array([(alt_diff + Aircraft.vertical_separation_requirement)/vs_rel_fph,
-                                        (alt_diff - Aircraft.vertical_separation_requirement)/vs_rel_fph])
+        t_vertical_conflict = np.array([(alt_diff + S_v)/vs_rel_fph,
+                                        (alt_diff - S_v)/vs_rel_fph])
         t_in_vert = np.min(t_vertical_conflict, axis=0)
         t_out_vert = np.max(t_vertical_conflict, axis=0)
     with np.errstate(invalid='ignore'):
         t_in_combined = np.max(np.array([t_in_hor, t_in_vert]), axis=0)
         vertical_conflict = (t_in_combined < t_lookahead) & (t_out_vert > 0)
-    level_conflict = ((np.abs(vs_rel_fph) < 1e-8) & (np.abs(alt_diff) < Aircraft.vertical_separation_requirement))
+    level_conflict = ((np.abs(vs_rel_fph) < 1e-8) & (np.abs(alt_diff) < S_v))
     if out is None:
         return horizontal_conflict & (level_conflict | vertical_conflict)
     else:

@@ -6,13 +6,16 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 
+import conflicts.simulate
 from conflicts.simulate import Flow, Simulation, CombinedFlows
+
+rng = np.random.default_rng()
 
 
 class ReplayFlow(Flow):
     usable_columns = ('ts', 'alt', 'gs', 'trk', 'x', 'y', 'roc')
 
-    def __init__(self, df, callsign_col, cluster_name, delete_after=110):
+    def __init__(self, df, callsign_col, cluster_name, delete_after=110, time_shift_max=None):
         callsigns = df[callsign_col].unique()
 
         n = callsigns.shape[0]
@@ -33,8 +36,15 @@ class ReplayFlow(Flow):
         self.t_activate = np.zeros(n)
         self.t_deactivate = np.zeros(n)
         self.dataframes = []
+
+        if time_shift_max is not None:
+            self.time_shifts = rng.uniform(0, time_shift_max, n).astype(int)
+
         for i, callsign in enumerate(callsigns):
             df_callsign = df[df[callsign_col] == callsign]
+            if time_shift_max is not None:
+                df_callsign['ts'] += self.time_shifts[i]
+
             self.t_activate[i] = df_callsign['ts'].min()
             self.t_deactivate[i] = df_callsign['ts'].max() + delete_after
             self.dataframes.append(df_callsign)
@@ -141,17 +151,21 @@ class ReplaySimulation(Simulation):
 
 
 if __name__ == "__main__":
+    t_lookahead = 10./60
+    conflicts.simulate.S_h = 9
+    conflicts.simulate.S_v = 2000
     f_simulation = 3600 // 6
     f_plot = None#3600 // 60
     f_conflict = 3600 // 6
-    do_calc = False
+    do_calc = True
     T = 24  # hrs
     n_splits = 4
     disregard_days = True
     start_midday = False
     data_date_fmt = '20180101-20180102-20180104-20180105_split_{}'
-    results_fn = 'data/conflict_replay_results/20180101-20180102-20180104-20180105-splits-1-to-4.xlsx'
+    max_time_shift = 3600 # seconds
 
+    splits_to_consider = list(range(n_splits))
 
     from tools import create_logger
     log = create_logger(verbose=True)
@@ -159,15 +173,18 @@ if __name__ == "__main__":
     fig, ax = plt.subplots(2, 2)
     ax = ax.reshape((n_splits,))
     records = []
-    for split in list(range(n_splits)):
+    results_fn = 'data/conflict_replay_results/eham_stop_mean_std_0.28_20180101-20180102-20180104-20180105-splits_{}-S_h-{}-S_v-{}-t_l-{:.4f}-timeshift-uniform-0-{}.xlsx'.format(
+        repr(splits_to_consider).replace(', ','-'), conflicts.simulate.S_h, conflicts.simulate.S_v, t_lookahead, max_time_shift)
+    for split in splits_to_consider:
+
         log("Starting split {}".format(split))
         data_date = data_date_fmt.format(split)
         callsign_col = 'fid'
 
-        out_fn = 'data/replay_conflicts/eham_{}-fsim-{}-fconflict-{}.xlsx'.format(data_date, f_simulation, f_conflict)
+        out_fn = 'data/replay_conflicts/eham_stop_mean_std_0.28_{}-fsim-{}-fconflict-{}-S_h-{}-S_v-{}-t_l-{:.4f}-timeshift-uniform-0-{}.xlsx'.format(data_date, f_simulation, f_conflict, conflicts.simulate.S_h, conflicts.simulate.S_v, t_lookahead, max_time_shift)
 
         if do_calc:
-            with open('data/clustered/eham_{0}.csv'.format(data_date), 'r') as fp:
+            with open('data/clustered/eham_stop_mean_std_0.28_{0}.csv'.format(data_date), 'r') as fp:
                 parameters = ast.literal_eval(fp.readline())
                 df = pd.read_csv(fp)
             df = df[~pd.isna(df['trk'])]
@@ -184,7 +201,8 @@ if __name__ == "__main__":
             df.sort_values(by=['cluster', callsign_col, 't'], inplace=True)
             flows_dict = {}
             for cluster, group in df.groupby('cluster'):
-                flows_dict[cluster] = ReplayFlow(group, callsign_col, cluster, delete_after=50)
+                flows_dict[cluster] = ReplayFlow(group, callsign_col, cluster, delete_after=50, time_shift_max=max_time_shift)
+                flows_dict[cluster].t_lookahead = t_lookahead
                 # break
                 # for _ in range(60*24):
                 #     flows_dict[cluster].step(1/60)
@@ -196,6 +214,7 @@ if __name__ == "__main__":
                 # if cluster != -1:
                 #     pass
             flows = CombinedFlows(OrderedDict(flows_dict))
+            flows.t_lookahead = t_lookahead
 
             sim = ReplaySimulation(flows, plot_frequency=f_plot, calculate_conflict_per_time_unit=False, replay_df=df)
             sim.simulate(f_simulation, conflict_frequency=f_conflict, T=T)

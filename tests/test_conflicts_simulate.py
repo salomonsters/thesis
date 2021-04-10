@@ -8,7 +8,7 @@ import pytest
 from pint import UnitRegistry
 # from pytest import approx
 
-from conflicts.simulate import Aircraft, SingleAircraft, Flow, AircraftInFlow, CombinedFlows, Simulation
+from conflicts.simulate import Aircraft, SingleAircraft, Flow, AircraftInFlow, CombinedFlows, Simulation, S_h, S_v
 from conflicts.simulate import conflict_between, conflicts_between_multiple, calculate_horizontal_conflict
 from tests.extra_functions import approx_with_mapping_support as approx
 
@@ -489,9 +489,9 @@ def test_calculate_horizontal_conflict(flows_on_collision):
     x_rel_norm_sq = np.einsum('ijk,ijk->ij', x_rel, x_rel)
     with np.errstate(invalid='ignore'):
         t_horizontal_conflict = np.array([(x_v_inner + np.sqrt(
-            x_v_inner ** 2 - x_rel_norm_sq * v_rel_norm_sq + v_rel_norm_sq * Aircraft.horizontal_separation_requirement ** 2)) / v_rel_norm_sq,
+            x_v_inner ** 2 - x_rel_norm_sq * v_rel_norm_sq + v_rel_norm_sq * S_h ** 2)) / v_rel_norm_sq,
                                           (x_v_inner - np.sqrt(
-                                              x_v_inner ** 2 - x_rel_norm_sq * v_rel_norm_sq + v_rel_norm_sq * Aircraft.horizontal_separation_requirement ** 2)) / v_rel_norm_sq])
+                                              x_v_inner ** 2 - x_rel_norm_sq * v_rel_norm_sq + v_rel_norm_sq * S_h ** 2)) / v_rel_norm_sq])
         t_cpa = np.average(t_horizontal_conflict, axis=0)
         tcpa_vrel = np.einsum('ij,ijk->ijk', t_cpa, v_rel)
         minimum_distance = np.einsum('ijk,ijk->ij', tcpa_vrel, -x_rel)
@@ -502,7 +502,7 @@ def test_calculate_horizontal_conflict(flows_on_collision):
     t_out_hor_numba = np.zeros((own.n, other.n), dtype=Aircraft.dtype)
     minimum_distance_numba = np.zeros((own.n, other.n), dtype=Aircraft.dtype)
     calculate_horizontal_conflict(own.n, other.n, own.active, other.active, own.position, other.position, own.v, other.v,
-                                  Aircraft.horizontal_separation_requirement ** 2,
+                                  S_h ** 2,
                                   t_in_hor_numba, t_out_hor_numba, minimum_distance_numba)
     assert t_in_hor == approx(t_in_hor_numba, nan_ok=True)
     assert t_out_hor == approx(t_out_hor_numba, nan_ok=True)
