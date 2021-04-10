@@ -60,11 +60,12 @@ def overlap_type(condition):
     where_array = np.where(np.concatenate(([condition[0]],condition[:-1] != condition[1:],[True])))[0]
     assert where_array.shape[0] > 1
     if where_array.shape[0] == 2 and np.all(condition):
-        return 'all'
-    elif where_array[0] == 0 and where_array.shape[0] == 3 and where_array[2] == n_data_points: # where_array[1] > n_data_points*0.15:
-        return 'begin'
-
-    return 'other'
+        return ('all', None)
+    elif where_array[0] == 0 and where_array.shape[0] > 2:# and where_array[2] == n_data_points: # where_array[1] > n_data_points*0.15:
+        return ('begin', None)
+    first_loss_of_separation_index = where_array[0]
+    assert first_loss_of_separation_index != 0
+    return ('other', first_loss_of_separation_index)
 
     # return where_array[0]
     # elif where_array.shape[0] % 2 == 0 and where_array[-2] > n_data_points*0.5 and where_array[-1] == n_data_points:
@@ -79,10 +80,10 @@ def overlap_type(condition):
 
 def overlap(left, right):
     if left['cluster'] == right['cluster']:
-        return 'same'
+        return ('same', None)
     v_diff = left.mean_alt - right.mean_alt
     if not np.any(within_S_v := np.abs(v_diff) <= S_v):
-        return 'none'
+        return ('none', None)
 
     h_distances = np.linalg.norm(left.mean_track - right.mean_track, axis=1)
 
@@ -116,6 +117,7 @@ def calculate_V_rel_corrected_at(row, at):
     :param at:
     :return:
     """
+    at = int(at)
     gs_i = row['other_states_i'][at, other_states_gs_index]
     gs_j = row['other_states_j'][at, other_states_gs_index]
     trk_i = row['other_states_i'][at, other_states_trk_index]
@@ -126,9 +128,12 @@ def calculate_V_rel_corrected_at(row, at):
     V_rel = np.sqrt(gs_i**2+gs_j**2-2*gs_i*gs_j*np.cos(trk_diff))
     hourly_arrival_rates_prod = row['hourly_arrival_rates_i'] * row['hourly_arrival_rates_j']
     nonzero_hourly_arrival_rates_prod = hourly_arrival_rates_prod[hourly_arrival_rates_prod > 0]
-    lam_correction = nonzero_hourly_arrival_rates_prod.mean()
-    V_rel_corr = V_rel * lam_correction/(gs_i*gs_j*np.sin(trk_diff))
-    return V_rel_corr
+    if len(nonzero_hourly_arrival_rates_prod) == 0:
+        lam_correction = 0
+    else:
+        lam_correction = nonzero_hourly_arrival_rates_prod.max()
+    V_rel_corr = V_rel /np.sin(trk_diff)/(gs_i*gs_j) * lam_correction
+    return V_rel, V_rel_corr, trk_diff, gs_i, gs_j, hourly_arrival_rates_prod
 
 
 
@@ -136,9 +141,13 @@ if __name__ == "__main__":
     S_h_in_nm = 3
     S_h = 1852 * S_h_in_nm
     S_v = 1000
-    use_weighted_least_squares = True
+    timeshift = 3600
+    timeshift_suffix = ''
+    if timeshift is not None:
+        timeshift_suffix = '-timeshift-uniform-0-{}'.format(timeshift)
+    use_weighted_least_squares = False
 
-    replay_results_file = 'data/conflict_replay_results/eham_stop_mean_std_0.28_20180101-20180102-20180104-20180105-splits_[0-1-2-3]-S_h-{}-S_v-{}-t_l-0.1667.xlsx'.format(S_h_in_nm, S_v)
+    replay_results_file = 'data/conflict_replay_results/eham_stop_mean_std_0.28_20180101-20180102-20180104-20180105-splits_[0-1-2-3]-S_h-{}-S_v-{}-t_l-0.1667{}.xlsx'.format(S_h_in_nm, S_v, timeshift_suffix)
     replay_df_all_splits = pd.read_excel(replay_results_file)
     combined_df_list = []
     for split in range(4):
@@ -229,7 +238,9 @@ if __name__ == "__main__":
 
         combined_df = replay_df.join(gdf_joined)
         combined_df.reset_index(inplace=True)
-        combined_df['overlap_type'] = combined_df.apply(lambda row: intersection_heatmap_extra_row_and_col[row['i'], row['j']], axis=1)
+        overlap_tuples = combined_df.apply(lambda row: intersection_heatmap_extra_row_and_col[row['i'], row['j']], axis=1).apply(pd.Series)
+        overlap_tuples.columns=['overlap_type', 'first_overlap_index']
+        combined_df = combined_df.merge(overlap_tuples, left_index=True, right_index=True)
         combined_df.query('i>0 and j>0', inplace=True)
         combined_df['track_product'] = combined_df['n_tracks_i'] * combined_df['n_tracks_j']
         combined_df['combined_active_hrs'] = combined_df.apply(lambda x: np.max(x[['t_end_i', 't_end_j']]) -  np.min(x[['t_start_i', 't_start_j']]), axis=1)/3600
@@ -242,45 +253,80 @@ if __name__ == "__main__":
         # Perhaps: identify consecutive points and use middle? And find non-intersecting points?
 
         combined_df['V_rel_corr'] = np.nan
+        combined_df = combined_df.assign(hourly_arrival_rates_prod=None)
+        combined_df['hourly_arrival_rates_prod'] = combined_df['hourly_arrival_rates_prod'].astype(object)
         for i in combined_df.index:
-            ovl_type = combined_df.loc[i]['overlap_type']
-            if isinstance(ovl_type, np.ndarray):
-                shape = ovl_type.shape[0]
-                if shape <= 2:
-                    at = int(ovl_type.mean())
-                    V_rel_corr = calculate_V_rel_corrected_at(combined_df.loc[i], ovl_type[0])
-                    combined_df.loc[i, 'V_rel_corr'] = V_rel_corr
-                else:
-                    pass#print(ovl_type)
-            pass
-        combined_df['conflicts_predicted'] = 2*S_h/1852*combined_df['V_rel_corr']#*combined_df['hourly_arrivals_i']*combined_df['hourly_arrivals_j']
+            # ovl_type = combined_df.loc[i]['overlap_type']
+            # if isinstance(ovl_type, np.ndarray):
+            #     shape = ovl_type.shape[0]
+            #     if shape <= 2:
+            if not pd.isna(at := combined_df.loc[i]['first_overlap_index']):
+                    V_rel_corr_result = calculate_V_rel_corrected_at(combined_df.loc[i], at)
+                    for k, col in enumerate(['V_rel', 'V_rel_corr', 'trk_diff', 'gs_i', 'gs_j', 'hourly_arrival_rates_prod']):
+                        combined_df.at[i, col] = V_rel_corr_result[k]
+        #         else:
+        #             pass#print(ovl_type)
+        #     pass
         combined_df_list.append(combined_df)
     combined_df_all = pd.concat(combined_df_list)
-    # combined_df_all.query('conflicts_predicted<3', inplace=True)
+
+    intensity_parameters = combined_df_all['hourly_arrival_rates_prod'].dropna().apply(
+        lambda x: (np.mean(x), np.max(x), np.sum(x), np.sum(x > 0))).apply(pd.Series)
+    intensity_parameters.columns = ['mean_intensity', 'max_intensity', 'total_intensity', 'intensity_active_hours']
+    combined_df_all = combined_df_all.merge(intensity_parameters, left_index=True, right_index=True)
+    combined_df_all['conflicts_predicted'] = 2 * S_h / 1852 * combined_df_all['V_rel_corr']
+    trk_diff = combined_df_all['trk_diff']
+    gs_i = combined_df_all['gs_i']
+    gs_j = combined_df_all['gs_j']
+    combined_df_all['conflicts_predicted_2'] = 2 * S_h / 1852 * combined_df_all['V_rel']/np.sin(trk_diff)/(gs_i*gs_j)*combined_df_all['mean_intensity']
+    combined_df_all['conflicts_predicted_3'] = 2 * S_h / 1852 * combined_df_all['V_rel']/np.sin(trk_diff)/(gs_i*gs_j)*combined_df_all['max_intensity']
+    combined_df_all['conflicts_predicted_4'] = 2 * S_h / 1852 * combined_df_all['V_rel']/np.sin(trk_diff)/(gs_i*gs_j)*combined_df_all['total_intensity']
+    combined_df_all['conflicts_per_active_hr_based_on_intensity'] = combined_df_all['conflicts'] / combined_df_all['intensity_active_hours']
+
+
     # high_conflicts = combined_df.query('type=="between"').sort_values('conflicts_per_active_hr')[-100:]
+
+
     fig, ax = plt.subplots(2, 1)
-    combined_df_all.groupby('overlap_type')['conflicts'].sum().plot.barh(ax=ax[0])
+    combined_df_all.groupby('overlap_type')['conflicts'].agg(['sum', 'count']).plot.barh(ax=ax[0])
     ax[0].set_xlabel("Sum of conflicts")
     combined_df_all.boxplot(column='conflicts_per_active_hr', by='overlap_type', vert=False, ax=ax[1])
     # plt.subplots_adjust(left=0.2)
     ax[1].set_xlabel("Conflicts_per_active_hr [1/h]")
     plt.show()
-    if False:
-        from sklearn.linear_model import LinearRegression
-        X = combined_df_all['conflicts_predicted'].values.reshape(-1, 1)
-        Y = combined_df_all['conflicts_per_active_hr'].values.reshape(-1, 1)
-        W = combined_df_all['track_product'].values.reshape(-1, 1)
-        non_nan_values = ~pd.isna(X+Y)
-        linear_regressor = LinearRegression()
-        if use_weighted_least_squares:
-            linear_regressor.fit(X[non_nan_values].reshape(-1, 1), Y[non_nan_values].reshape(-1, 1), sample_weight=W[non_nan_values].ravel())
-            r_squared = linear_regressor.score(X[non_nan_values].reshape(-1, 1), Y[non_nan_values].reshape(-1, 1), sample_weight=W[non_nan_values].ravel())
-        else:
-            linear_regressor.fit(X[non_nan_values].reshape(-1, 1), Y[non_nan_values].reshape(-1, 1))
-            r_squared = linear_regressor.score(X[non_nan_values].reshape(-1, 1), Y[non_nan_values].reshape(-1, 1))
-        Y_pred = linear_regressor.predict(X[non_nan_values].reshape(-1, 1))
+
+
+    if True:
+        x_cols = ['conflicts_predicted', 'conflicts_predicted_2', 'conflicts_predicted_3', 'conflicts_predicted_4']
+        y_cols = ['conflicts_per_active_hr', 'conflicts_per_active_hr_based_on_intensity']
         plt.figure()
-        ax = combined_df_all.plot.scatter('conflicts_predicted', 'conflicts_per_active_hr')
-        plt.plot(X[non_nan_values].reshape(-1, 1), Y_pred, color='red')
-        plt.title("$R^2={:.4f}$".format(r_squared))
+        fig, axs = plt.subplots(len(y_cols), len(x_cols), figsize=(20, 10))
+        for i, y_col in enumerate(y_cols):
+            for j, x_col in enumerate(x_cols):
+
+                # combined_df_all.query('conflicts_predicted<20', inplace=True)
+                from sklearn.linear_model import LinearRegression
+                X = combined_df_all[x_col].values.reshape(-1, 1)
+                Y = combined_df_all[y_col].values.reshape(-1, 1)
+                W = combined_df_all['track_product'].values.reshape(-1, 1)
+                if x_col == 'conflicts_predicted_2':
+                    non_nan_values = ~pd.isna(X + Y) & np.isfinite(X + Y) & (Y < 4) & (X < 0.5)
+                else:
+                    non_nan_values = ~pd.isna(X+Y) & np.isfinite(X+Y) & (Y<4) & (X<10)
+                linear_regressor = LinearRegression()
+                if use_weighted_least_squares:
+                    linear_regressor.fit(X[non_nan_values].reshape(-1, 1), Y[non_nan_values].reshape(-1, 1), sample_weight=W[non_nan_values].ravel())
+                    r_squared = linear_regressor.score(X[non_nan_values].reshape(-1, 1), Y[non_nan_values].reshape(-1, 1), sample_weight=W[non_nan_values].ravel())
+                else:
+                    linear_regressor.fit(X[non_nan_values].reshape(-1, 1), Y[non_nan_values].reshape(-1, 1))
+                    r_squared = linear_regressor.score(X[non_nan_values].reshape(-1, 1), Y[non_nan_values].reshape(-1, 1))
+                Y_pred = linear_regressor.predict(X[non_nan_values].reshape(-1, 1))
+                # plt.figure()
+                combined_df_all.loc[non_nan_values].plot.scatter(x_col, y_col, ax=axs[i, j])
+                axs[i, j].plot(X[non_nan_values].reshape(-1, 1), Y_pred, color='red')
+                axs[i, j].title.set_text("$R^2={:.4f}$".format(r_squared))
+        fig.suptitle(replay_results_file[replay_results_file.rfind('/'):])
         plt.show()
+                # plt.figure()
+                # combined_df_all.plot.scatter('trk_diff', 'conflicts_per_active_hr')
+                # plt.show()
