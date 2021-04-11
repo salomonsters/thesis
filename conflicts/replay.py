@@ -15,7 +15,7 @@ rng = np.random.default_rng()
 class ReplayFlow(Flow):
     usable_columns = ('ts', 'alt', 'gs', 'trk', 'x', 'y', 'roc')
 
-    def __init__(self, df, callsign_col, cluster_name, delete_after=110, time_shift_max=None):
+    def __init__(self, df, callsign_col, cluster_name, delete_after=110, time_shift_max=None, activate_based_on_flow_lambda=False):
         callsigns = df[callsign_col].unique()
 
         n = callsigns.shape[0]
@@ -37,13 +37,28 @@ class ReplayFlow(Flow):
         self.t_deactivate = np.zeros(n)
         self.dataframes = []
 
+        assert not (time_shift_max is not None and activate_based_on_flow_lambda), \
+            "invalid timeshift/activation parameters"
+
+        self.time_shifts = None
+
         if time_shift_max is not None:
             self.time_shifts = rng.uniform(0, time_shift_max, n).astype(int)
 
+        elif activate_based_on_flow_lambda:
+            df_ts_0 = df.groupby(callsign_col)['ts'].min()
+            mean_time_between_activations = df_ts_0.sort_values().diff()[1:].mean()
+            activation_times = np.cumsum(rng.exponential(scale=mean_time_between_activations, size=n))
+            rng.shuffle(activation_times)
+            self.activation_times = activation_times
+            new_ts_0 = pd.Series(activation_times, index=callsigns)
+            self.time_shifts = (new_ts_0 - df_ts_0).to_numpy()
+
         for i, callsign in enumerate(callsigns):
             df_callsign = df[df[callsign_col] == callsign]
-            if time_shift_max is not None:
+            if self.time_shifts is not None:
                 df_callsign['ts'] += self.time_shifts[i]
+                assert np.abs(df_callsign['ts'].min() - activation_times[i])<1
 
             self.t_activate[i] = df_callsign['ts'].min()
             self.t_deactivate[i] = df_callsign['ts'].max() + delete_after
@@ -152,7 +167,7 @@ class ReplaySimulation(Simulation):
 
 if __name__ == "__main__":
     t_lookahead = 10./60
-    conflicts.simulate.S_h = 9
+    conflicts.simulate.S_h = 6
     conflicts.simulate.S_v = 2000
     f_simulation = 3600 // 6
     f_plot = None#3600 // 60
@@ -163,8 +178,7 @@ if __name__ == "__main__":
     disregard_days = True
     start_midday = False
     data_date_fmt = '20180101-20180102-20180104-20180105_split_{}'
-    max_time_shift = 3600 # seconds
-
+    # max_time_shift = 3600 # seconds
     splits_to_consider = list(range(n_splits))
 
     from tools import create_logger
@@ -173,15 +187,15 @@ if __name__ == "__main__":
     fig, ax = plt.subplots(2, 2)
     ax = ax.reshape((n_splits,))
     records = []
-    results_fn = 'data/conflict_replay_results/eham_stop_mean_std_0.28_20180101-20180102-20180104-20180105-splits_{}-S_h-{}-S_v-{}-t_l-{:.4f}-timeshift-uniform-0-{}.xlsx'.format(
-        repr(splits_to_consider).replace(', ','-'), conflicts.simulate.S_h, conflicts.simulate.S_v, t_lookahead, max_time_shift)
+    results_fn = 'data/conflict_replay_results/eham_stop_mean_std_0.28_20180101-20180102-20180104-20180105-splits_{}-S_h-{}-S_v-{}-t_l-{:.4f}-as-events.xlsx'.format(
+        repr(splits_to_consider).replace(', ','-'), conflicts.simulate.S_h, conflicts.simulate.S_v, t_lookahead)
     for split in splits_to_consider:
 
         log("Starting split {}".format(split))
         data_date = data_date_fmt.format(split)
         callsign_col = 'fid'
 
-        out_fn = 'data/replay_conflicts/eham_stop_mean_std_0.28_{}-fsim-{}-fconflict-{}-S_h-{}-S_v-{}-t_l-{:.4f}-timeshift-uniform-0-{}.xlsx'.format(data_date, f_simulation, f_conflict, conflicts.simulate.S_h, conflicts.simulate.S_v, t_lookahead, max_time_shift)
+        out_fn = 'data/replay_conflicts/eham_stop_mean_std_0.28_{}-fsim-{}-fconflict-{}-S_h-{}-S_v-{}-t_l-{:.4f}-as-events.xlsx'.format(data_date, f_simulation, f_conflict, conflicts.simulate.S_h, conflicts.simulate.S_v, t_lookahead)
 
         if do_calc:
             with open('data/clustered/eham_stop_mean_std_0.28_{0}.csv'.format(data_date), 'r') as fp:
@@ -201,8 +215,14 @@ if __name__ == "__main__":
             df.sort_values(by=['cluster', callsign_col, 't'], inplace=True)
             flows_dict = {}
             for cluster, group in df.groupby('cluster'):
-                flows_dict[cluster] = ReplayFlow(group, callsign_col, cluster, delete_after=50, time_shift_max=max_time_shift)
+                flows_dict[cluster] = ReplayFlow(group, callsign_col, cluster, delete_after=50, activate_based_on_flow_lambda=True)
                 flows_dict[cluster].t_lookahead = t_lookahead
+                if flows_dict[cluster].time_shifts is not None:
+                    callsigns = group[callsign_col].unique()
+                    for i, callsign in enumerate(callsigns):
+                        df.loc[df[callsign_col] == callsign, 'ts'] += flows_dict[cluster].time_shifts[i]
+                        assert np.abs( df.loc[df[callsign_col] == callsign, 'ts'].min() - flows_dict[cluster].activation_times[i]) < 1
+
                 # break
                 # for _ in range(60*24):
                 #     flows_dict[cluster].step(1/60)
@@ -230,6 +250,7 @@ if __name__ == "__main__":
                 df_conflicts.to_excel(writer, sheet_name='Conflicts')
                 # df2.to_excel(writer, sheet_name='Properties')
             print("Results saved to {}".format(out_fn))
+            df.to_csv('data/clustered/eham_stop_mean_std_0.28_{0}-as-events.csv'.format(data_date))
         else:
             df_conflicts = pd.read_excel(out_fn)
         n_cluster = df_conflicts['flow1'].max() + 1  # +1 for unclustered
