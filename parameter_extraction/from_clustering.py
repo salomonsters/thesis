@@ -1,4 +1,5 @@
 import ast
+import warnings
 
 import geopandas
 import matplotlib.pyplot as plt
@@ -133,6 +134,9 @@ def calculate_V_rel_corrected_at(row, at):
     trk_i = row['other_states_i'][at, other_states_trk_index]
     trk_j = row['other_states_j'][at, other_states_trk_index]
     trk_diff = np.radians(np.abs(trk_i-trk_j))
+    mean_time_between_activations_i = row['mean_time_between_activations_i']
+    mean_time_between_activations_j = row['mean_time_between_activations_j']
+    flights_as_events_lambda_correction = 3600*3600/(mean_time_between_activations_i*mean_time_between_activations_j)
     if trk_diff > np.pi:
         trk_diff = trk_diff - np.pi
     V_rel = np.sqrt(gs_i**2+gs_j**2-2*gs_i*gs_j*np.cos(trk_diff))
@@ -143,20 +147,25 @@ def calculate_V_rel_corrected_at(row, at):
     else:
         lam_correction = nonzero_hourly_arrival_rates_prod.max()
     V_rel_corr = V_rel /np.sin(trk_diff)/(gs_i*gs_j) * lam_correction
-    return V_rel, V_rel_corr, trk_diff, gs_i, gs_j, hourly_arrival_rates_prod
+    return V_rel, V_rel_corr, trk_diff, gs_i, gs_j, hourly_arrival_rates_prod, flights_as_events_lambda_correction
 
 
 
 if __name__ == "__main__":
-    S_h_in_nm = 3
+    S_h_in_nm = 6
     S_h = 1852 * S_h_in_nm
-    S_v = 1000
-    timeshift = 3600
+    S_v = 2000
+    timeshift = None
+    as_events = True
+    use_weighted_least_squares = False
+    calculate_V_rel_method = 'first'  # 'closest' or 'first'
+
     timeshift_suffix = ''
+    t_col = 'ts'
     if timeshift is not None:
         timeshift_suffix = '-timeshift-uniform-0-{}'.format(timeshift)
-    use_weighted_least_squares = False
-    calculate_V_rel_method = 'first' # 'closest' or 'first'
+    elif as_events:
+        timeshift_suffix = '-as-events-repeats-5'
 
     replay_results_file = 'data/conflict_replay_results/eham_stop_mean_std_0.28_20180101-20180102-20180104-20180105-splits_[0-1-2-3]-S_h-{}-S_v-{}-t_l-0.1667{}.xlsx'.format(S_h_in_nm, S_v, timeshift_suffix)
     replay_df_all_splits = pd.read_excel(replay_results_file)
@@ -174,10 +183,13 @@ if __name__ == "__main__":
         other_states_gs_index = columns.index('gs') - 3
         other_states_trk_index = columns.index('trk') - 3
         # plot_intersection_heatmap = True
-        with open('data/clustered/eham_stop_mean_std_0.28_{0}.csv'.format(data_date), 'r') as fp:
-            parameters = ast.literal_eval(fp.readline())
+
+        with open('data/clustered/eham_stop_mean_std_0.28_{0}{1}.csv'.format(data_date, timeshift_suffix), 'r') as fp:
+            parameters = None
+            if not as_events:
+                parameters = ast.literal_eval(fp.readline())
             df = pd.read_csv(fp)
-        df.sort_values(by=['cluster', 'ts'], inplace=True)
+        df.sort_values(by=['cluster', t_col], inplace=True)
 
         tracks_per_cluster = df.groupby('cluster')['fid'].unique().apply(len)
         rows = []
@@ -192,12 +204,16 @@ if __name__ == "__main__":
             assert n_tracks == len(cluster_points['fid'].unique())
             cluster_ts_0_items = []
             for fid, track_points in cluster_points.groupby(by='fid'):
+                if len(track_points) < n_data_points:
+                    # warnings.warn("{} has has {} datapoints, which is less than {}".format(fid, len(track_points), n_data_points))
+                    n_tracks -= 1
+                    continue
                 assert len(track_points) >= n_data_points
                 resampling_indices = np.round(np.linspace(0, len(track_points) - 1, n_data_points)).astype('int')
                 cluster_points.loc[track_points.index[resampling_indices], 'index_along_track'] = list(range(n_data_points))
                 # # Stupid SettingWithCopyWarning
                 # assert np.all(cluster_points.loc[track_points.index[resampling_indices], 'index_along_track'] >= 0)
-                cluster_ts_0_items.append(track_points['ts'].min())
+                cluster_ts_0_items.append(track_points[t_col].min())
             points = cluster_points.query('index_along_track >= 0')
             points_per_fid = points.set_index(['fid', 'index_along_track']).sort_index()[columns].to_numpy().reshape(n_tracks, 200, len(columns))
             # plt.figure()
@@ -209,7 +225,7 @@ if __name__ == "__main__":
                 other_states = mean[:, 3:]
             else:
                 other_states = None
-
+            mean_time_between_activations = np.diff(np.sort(cluster_ts_0_items))[1:].mean()
             # hourly_arrivals = np.histogram(arrival_times := (cluster_ts_0_items - np.min(cluster_ts_0_items))/3600, bins=range(int(np.max(arrival_times))))[0].mean()
             hourly_arrival_rates = np.histogram(np.array(cluster_ts_0_items)/3600, bins=range(24))[0]
 
@@ -224,14 +240,14 @@ if __name__ == "__main__":
             # plt.legend()
             # plt.show()
 
-            rows.append((cluster, n_tracks, LineString(mean_2d_track), mean_2d_track, mean_alt, other_states, active_duration_in_hours, t_start, t_end, hourly_arrival_rates))
+            rows.append((cluster, n_tracks, LineString(mean_2d_track), mean_2d_track, mean_alt, other_states, active_duration_in_hours, t_start, t_end, hourly_arrival_rates, mean_time_between_activations))
 
             # plt.figure()
             # points.plot.scatter(y='index_along_track', x='gs', s=0.01)
             # plt.show()
 
-        gdf = geopandas.GeoDataFrame.from_records(rows, columns=['cluster', 'n_tracks', 'geometry', 'mean_track', 'mean_alt', 'other_states', 'active_duration_in_hours', 't_start', 't_end','hourly_arrival_rates'])
-        gdf['hourly_arrivals'] = gdf['n_tracks']/gdf['active_duration_in_hours']
+        gdf = geopandas.GeoDataFrame.from_records(rows, columns=['cluster', 'n_tracks', 'geometry', 'mean_track', 'mean_alt', 'other_states', 'active_duration_in_hours', 't_start', 't_end','hourly_arrival_rates', 'mean_time_between_activations'])
+        # gdf['hourly_arrivals'] = gdf['n_tracks']/gdf['active_duration_in_hours']
         # intersection_map = np.array([[left.intersects(right) for left in gdf['geometry']] for right in gdf['geometry']])
         intersection_heatmap = np.array([[overlap(left, right) for _, left in gdf.iterrows()] for _, right in gdf.iterrows()], dtype='object')
         intersection_heatmap_extra_row_and_col = np.zeros(shape=np.array(intersection_heatmap.shape) + [1,1], dtype='object')
@@ -255,7 +271,8 @@ if __name__ == "__main__":
         combined_df.query('i>0 and j>0', inplace=True)
         combined_df['track_product'] = combined_df['n_tracks_i'] * combined_df['n_tracks_j']
         combined_df['combined_active_hrs'] = combined_df.apply(lambda x: np.max(x[['t_end_i', 't_end_j']]) -  np.min(x[['t_start_i', 't_start_j']]), axis=1)/3600
-        combined_df['conflicts_per_active_hr'] = combined_df['conflicts']/combined_df['combined_active_hrs']
+        combined_df['conflicts_per_active_hr'] = combined_df['conflicts'] / combined_df['combined_active_hrs']
+
 
         # combined_df.plot.hexbin(x='hourly_arrivals_i', y='hourly_arrivals_j', C='conflicts')
         # plt.show()
@@ -279,7 +296,7 @@ if __name__ == "__main__":
                     else:
                         raise ValueError("calculate_V_rel_method should be 'closest' or 'first'")
                     V_rel_corr_result = calculate_V_rel_corrected_at(combined_df.loc[i], at)
-                    for k, col in enumerate(['V_rel', 'V_rel_corr', 'trk_diff', 'gs_i', 'gs_j', 'hourly_arrival_rates_prod']):
+                    for k, col in enumerate(['V_rel', 'V_rel_corr', 'trk_diff', 'gs_i', 'gs_j', 'hourly_arrival_rates_prod', 'flights_as_events_lambda_correction']):
                         combined_df.at[i, col] = V_rel_corr_result[k]
         #         else:
         #             pass#print(ovl_type)
@@ -298,7 +315,11 @@ if __name__ == "__main__":
     combined_df_all['conflicts_predicted_2'] = 2 * S_h / 1852 * combined_df_all['V_rel']/np.sin(trk_diff)/(gs_i*gs_j)*combined_df_all['mean_intensity']
     combined_df_all['conflicts_predicted_3'] = 2 * S_h / 1852 * combined_df_all['V_rel']/np.sin(trk_diff)/(gs_i*gs_j)*combined_df_all['max_intensity']
     combined_df_all['conflicts_predicted_4'] = 2 * S_h / 1852 * combined_df_all['V_rel']/np.sin(trk_diff)/(gs_i*gs_j)*combined_df_all['total_intensity']
-    combined_df_all['conflicts_per_active_hr_based_on_intensity'] = combined_df_all['conflicts'] / combined_df_all['intensity_active_hours']
+    combined_df_all['conflicts_predicted_5'] = 2 * S_h / 1852 * combined_df_all['V_rel']/np.sin(trk_diff)/(gs_i*gs_j)*combined_df_all['flights_as_events_lambda_correction']
+    if as_events:
+        combined_df_all['conflicts_per_active_hr_based_on_intensity'] = combined_df_all['conflicts']/combined_df_all[['active_duration_in_hours_i', 'active_duration_in_hours_j']].min(axis=1)
+    else:
+        combined_df_all['conflicts_per_active_hr_based_on_intensity'] = combined_df_all['conflicts'] / combined_df_all['intensity_active_hours']
 
 
     # high_conflicts = combined_df.query('type=="between"').sort_values('conflicts_per_active_hr')[-100:]
@@ -314,7 +335,7 @@ if __name__ == "__main__":
 
 
     if True:
-        x_cols = ['conflicts_predicted', 'conflicts_predicted_2', 'conflicts_predicted_3', 'conflicts_predicted_4']
+        x_cols = ['conflicts_predicted', 'conflicts_predicted_2', 'conflicts_predicted_3', 'conflicts_predicted_4', 'conflicts_predicted_5']
         y_cols = ['conflicts_per_active_hr', 'conflicts_per_active_hr_based_on_intensity']
         plt.figure()
         fig, axs = plt.subplots(len(y_cols), len(x_cols), figsize=(20, 10))
@@ -326,10 +347,11 @@ if __name__ == "__main__":
                 X = combined_df_all[x_col].values.reshape(-1, 1)
                 Y = combined_df_all[y_col].values.reshape(-1, 1)
                 W = combined_df_all['track_product'].values.reshape(-1, 1)
-                if x_col == 'conflicts_predicted_2':
-                    non_nan_values = ~pd.isna(X + Y) & np.isfinite(X + Y) & (Y < 4) & (X < 0.5)
-                else:
-                    non_nan_values = ~pd.isna(X+Y) & np.isfinite(X+Y) & (Y<4) & (X<10)
+                # if x_col == 'conflicts_predicted_2':
+                #     non_nan_values = ~pd.isna(X + Y) & np.isfinite(X + Y) & (Y < 4) & (X < 0.5)
+                # else:
+                # non_nan_values = ~pd.isna(X+Y) & np.isfinite(X+Y) & (Y<4) & (X<0.5) & (Y>0.01)
+                non_nan_values = ~pd.isna(X+Y) & np.isfinite(X+Y) & (Y>0.01) & (X<10) & (Y<20)
                 linear_regressor = LinearRegression()
                 if use_weighted_least_squares:
                     linear_regressor.fit(X[non_nan_values].reshape(-1, 1), Y[non_nan_values].reshape(-1, 1), sample_weight=W[non_nan_values].ravel())
