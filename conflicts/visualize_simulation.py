@@ -1,9 +1,11 @@
 import ast
 
 import matplotlib
+import matplotlib.offsetbox
 import numpy as np
 import pandas as pd
-from matplotlib import pyplot as plt, ticker
+from matplotlib import pyplot as plt
+from sklearn.linear_model import LinearRegression
 
 from conflicts.simulate import Aircraft
 
@@ -118,10 +120,21 @@ def plot_simulation_consistency(input_filenames, plot_options=None):
         np.max([ax[0].get_xlim(), ax[0].get_ylim()]),  # max[0] of both ax[0]es
     ]
 
+    x_col = 'conflicts_predicted'
+    y_col = 'conflictsph'
+    X = dfs[x_col].values.reshape(-1, 1)
+    Y = dfs[y_col].values.reshape(-1, 1)
+    non_nan_values = ~pd.isna(X + Y) & np.isfinite(X + Y) & (Y > 0.01) #& (X < 10) & (Y < 20)
+    linear_regressor = LinearRegression()
+    linear_regressor.fit(X[non_nan_values].reshape(-1, 1), Y[non_nan_values].reshape(-1, 1))
+    r_squared = linear_regressor.score(X[non_nan_values].reshape(-1, 1), Y[non_nan_values].reshape(-1, 1))
+
     # now plot both limits against eachother
     ax[0].plot(ax0_lims, ax0_lims, 'k--', label="Theoretical", alpha=0.75, zorder=0)
     ax[0].set_xlim(ax0_xlims)
     ax[0].set_ylim(ax0_ylims)
+    anchored_text = matplotlib.offsetbox.AnchoredText("$R^2={:.4f}$".format(r_squared), loc="lower right")
+    ax[0].add_artist(anchored_text)
     ax[0].legend()
 
     dfs.boxplot(column='observed/predicted', by='x', ax=ax[1], rot=90)
