@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from shapely.geometry import LineString
+from scipy.stats import circmean
 
 from conflicts.simulate import Aircraft
 
@@ -194,6 +195,12 @@ if __name__ == "__main__":
         tracks_per_cluster = df.groupby('cluster')['fid'].unique().apply(len)
         rows = []
         # for cluster, n_tracks in tracks_per_cluster.sort_values(ascending=False).iteritems():
+        df_tracks_per_cluster = pd.DataFrame(tracks_per_cluster)
+        print("Split, n_clusters, n_tracks mean pm std, unclustered : {0} & {3} mean {2[0]:.2f} $\pm$ std {2[1]:.2f} &{1}".format(
+            split, tracks_per_cluster.iloc[0],
+            df_tracks_per_cluster.query('cluster>0').agg(['mean', 'std']).to_numpy().ravel(),
+            len(df_tracks_per_cluster.index) - 1))
+        assert len(tracks_per_cluster) > 2
         for cluster, n_tracks in tracks_per_cluster.iteritems():
             # Don't use unclustered tracks for now
             if cluster == -1:
@@ -219,6 +226,9 @@ if __name__ == "__main__":
             # plt.figure()
             # medoid_index = medoid(points_per_fid.reshape(n_tracks, -1), axis=0, indexonly=True)
             mean = np.nanmean(points_per_fid.reshape(n_tracks, -1), axis=0).reshape(n_data_points, len(columns))
+            if 'trk' in columns:
+                trk_mean = circmean(points_per_fid[:,:, columns.index('trk')], high=360, axis=0, nan_policy='omit')
+                mean[:, columns.index('trk')] = trk_mean
             mean_2d_track = mean[:, :2]
             mean_alt = mean[:, 2]
             if mean.shape[1] > 2:
@@ -305,7 +315,7 @@ if __name__ == "__main__":
     combined_df_all = pd.concat(combined_df_list)
 
     intensity_parameters = combined_df_all['hourly_arrival_rates_prod'].dropna().apply(
-        lambda x: (np.mean(x), np.max(x), np.sum(x), np.sum(x > 0))).apply(pd.Series)
+        lambda x: (np.mean(x), np.max(x), np.sum(x), np.count_nonzero(x))).apply(pd.Series)
     intensity_parameters.columns = ['mean_intensity', 'max_intensity', 'total_intensity', 'intensity_active_hours']
     combined_df_all = combined_df_all.merge(intensity_parameters, left_index=True, right_index=True)
     combined_df_all['conflicts_predicted'] = 2 * S_h / 1852 * combined_df_all['V_rel_corr']
@@ -328,9 +338,9 @@ if __name__ == "__main__":
     fig, ax = plt.subplots(2, 1)
     combined_df_all.groupby('overlap_type')['conflicts'].agg(['sum', 'count']).plot.barh(ax=ax[0])
     ax[0].set_xlabel("Sum of conflicts")
-    combined_df_all.boxplot(column='conflicts_per_active_hr', by='overlap_type', vert=False, ax=ax[1])
+    combined_df_all.boxplot(column='conflicts_per_active_hr_based_on_intensity', by='overlap_type', vert=False, ax=ax[1])
     # plt.subplots_adjust(left=0.2)
-    ax[1].set_xlabel("Conflicts_per_active_hr [1/h]")
+    ax[1].set_xlabel("conflicts_per_active_hr_based_on_intensity [1/h]")
     plt.show()
 
 
