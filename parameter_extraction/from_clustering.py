@@ -67,7 +67,7 @@ def overlap_type(condition):
         return ('begin', None)
     first_loss_of_separation_index = where_array[0]
     assert first_loss_of_separation_index != 0
-    return ('other', first_loss_of_separation_index)
+    return ('converging', first_loss_of_separation_index)
 
     # return where_array[0]
     # elif where_array.shape[0] % 2 == 0 and where_array[-2] > n_data_points*0.5 and where_array[-1] == n_data_points:
@@ -92,7 +92,11 @@ def index_of_closest_point(row):
 
 def overlap(left, right):
     if left['cluster'] == right['cluster']:
+        if left['cluster'] == 0:
+            return ('noise-within', None)
         return ('same', None)
+    elif left['cluster'] == 0 or right['cluster'] == 0:
+        return ('noise-between', None)
     v_diff = left.mean_alt - right.mean_alt
     if not np.any(within_S_v := np.abs(v_diff) <= S_v):
         return ('none', None)
@@ -153,11 +157,11 @@ def calculate_V_rel_corrected_at(row, at):
 
 
 if __name__ == "__main__":
-    S_h_in_nm = 6
+    S_h_in_nm = 3
     S_h = 1852 * S_h_in_nm
-    S_v = 2000
+    S_v = 1000
     timeshift = None
-    as_events = True
+    as_events = False
     use_weighted_least_squares = False
     calculate_V_rel_method = 'first'  # 'closest' or 'first'
 
@@ -196,17 +200,17 @@ if __name__ == "__main__":
         rows = []
         # for cluster, n_tracks in tracks_per_cluster.sort_values(ascending=False).iteritems():
         df_tracks_per_cluster = pd.DataFrame(tracks_per_cluster)
-        print("Split, n_clusters, n_tracks mean pm std, unclustered : {0} & {3} mean {2[0]:.2f} $\pm$ std {2[1]:.2f} &{1}".format(
-            split, tracks_per_cluster.iloc[0],
+        print("Split, total fid's, n_clusters, n_tracks mean pm std, unclustered : {0} & {4} & {3} & {2[0]:.2f} $\pm$ {2[1]:.2f} & {1} ({5:.2f}\%)".format(
+            split+1, tracks_per_cluster.iloc[0],
             df_tracks_per_cluster.query('cluster>0').agg(['mean', 'std']).to_numpy().ravel(),
-            len(df_tracks_per_cluster.index) - 1))
+            len(df_tracks_per_cluster.index) - 1, len(df['fid'].unique()), 100*tracks_per_cluster.iloc[0]/len(df['fid'].unique())))
         assert len(tracks_per_cluster) > 2
         for cluster, n_tracks in tracks_per_cluster.iteritems():
-            # Don't use unclustered tracks for now
-            if cluster == -1:
-                continue
 
             cluster_points = df.query('cluster== @cluster')
+            if cluster == -1:
+                cluster = 0
+                cluster_points['cluster'] = 0
             cluster_points = cluster_points.assign(index_along_track=-1)
             assert n_tracks == len(cluster_points['fid'].unique())
             cluster_ts_0_items = []
@@ -260,9 +264,9 @@ if __name__ == "__main__":
         # gdf['hourly_arrivals'] = gdf['n_tracks']/gdf['active_duration_in_hours']
         # intersection_map = np.array([[left.intersects(right) for left in gdf['geometry']] for right in gdf['geometry']])
         intersection_heatmap = np.array([[overlap(left, right) for _, left in gdf.iterrows()] for _, right in gdf.iterrows()], dtype='object')
-        intersection_heatmap_extra_row_and_col = np.zeros(shape=np.array(intersection_heatmap.shape) + [1,1], dtype='object')
+        intersection_heatmap_extra_row_and_col = np.zeros(shape=np.array(intersection_heatmap.shape), dtype='object')
         intersection_heatmap_extra_row_and_col[:, :] = np.nan
-        intersection_heatmap_extra_row_and_col[1:, 1:] = intersection_heatmap
+        intersection_heatmap_extra_row_and_col[0:, 0:] = intersection_heatmap
         # if plot_intersection_heatmap:
         #     import seaborn as sns
         #     ax = sns.heatmap(intersection_heatmap, cbar_kws={"label": "%"})
@@ -278,7 +282,7 @@ if __name__ == "__main__":
         overlap_tuples = combined_df.apply(lambda row: intersection_heatmap_extra_row_and_col[row['i'], row['j']], axis=1).apply(pd.Series)
         overlap_tuples.columns=['overlap_type', 'first_overlap_index']
         combined_df = combined_df.merge(overlap_tuples, left_index=True, right_index=True)
-        combined_df.query('i>0 and j>0', inplace=True)
+        # combined_df.query('i>0 and j>0', inplace=True)
         combined_df['track_product'] = combined_df['n_tracks_i'] * combined_df['n_tracks_j']
         combined_df['combined_active_hrs'] = combined_df.apply(lambda x: np.max(x[['t_end_i', 't_end_j']]) -  np.min(x[['t_start_i', 't_start_j']]), axis=1)/3600
         combined_df['conflicts_per_active_hr'] = combined_df['conflicts'] / combined_df['combined_active_hrs']
@@ -317,7 +321,7 @@ if __name__ == "__main__":
     intensity_parameters = combined_df_all['hourly_arrival_rates_prod'].dropna().apply(
         lambda x: (np.mean(x), np.max(x), np.sum(x), np.count_nonzero(x))).apply(pd.Series)
     intensity_parameters.columns = ['mean_intensity', 'max_intensity', 'total_intensity', 'intensity_active_hours']
-    combined_df_all = combined_df_all.merge(intensity_parameters, left_index=True, right_index=True)
+    combined_df_all = combined_df_all.merge(intensity_parameters, left_index=True, right_index=True, how='left')
     combined_df_all['conflicts_predicted'] = 2 * S_h / 1852 * combined_df_all['V_rel_corr']
     trk_diff = combined_df_all['trk_diff']
     gs_i = combined_df_all['gs_i']
@@ -336,18 +340,37 @@ if __name__ == "__main__":
 
 
     fig, ax = plt.subplots(2, 1)
-    combined_df_all.groupby('overlap_type')['conflicts'].agg(['sum', 'count']).plot.barh(ax=ax[0])
-    ax[0].set_xlabel("Sum of conflicts")
+    ax0_twin = ax[0].twiny()
+    combined_df_all.groupby('overlap_type')['conflicts'].agg(['sum']).plot.barh(ax=ax[0], position=0, color='C0', width=0.4)
+    combined_df_all.groupby('overlap_type')['conflicts'].agg(['count']).plot.barh(ax=ax0_twin, position=1, color='C1', width=0.4)
+    ax[0].set_xlabel("Number of conflicts")
+    ax[0].set_ylabel("Overlap type")
+
+    ax0_twin.set_ylabel("")
+    ax0_twin.set_xlabel("Number of flow pairs")
+    lines, labels = ax[0].get_legend_handles_labels()
+    lines2, labels2 = ax0_twin.get_legend_handles_labels()
+    ax[0].legend(lines + lines2, ['Conflicts', 'Flow pairs'], loc='lower right')
+    ax0_twin.get_legend().remove()
+    ax[0].set_title('')
+    y_lims = ax[0].get_ylim()
+    ax[0].set_ylim((y_lims[0], y_lims[1]+0.5))
+    x_lims = np.array([ax[0].get_xlim(), ax0_twin.get_xlim()]).max(axis=0)
+    ax[0].set_xlim(x_lims)
+    ax0_twin.set_xlim(x_lims)
     combined_df_all.boxplot(column='conflicts_per_active_hr_based_on_intensity', by='overlap_type', vert=False, ax=ax[1])
     # plt.subplots_adjust(left=0.2)
-    ax[1].set_xlabel("conflicts_per_active_hr_based_on_intensity [1/h]")
+    ax[1].set_xlabel("Conflict rate [1/h]")
+    ax[1].set_title('')
+    ax[1].set_ylabel("Overlap type")
+    fig.suptitle('')
+    plt.tight_layout()
     plt.show()
 
 
     if True:
         x_cols = ['conflicts_predicted', 'conflicts_predicted_2', 'conflicts_predicted_3', 'conflicts_predicted_4', 'conflicts_predicted_5']
         y_cols = ['conflicts_per_active_hr', 'conflicts_per_active_hr_based_on_intensity']
-        plt.figure()
         fig, axs = plt.subplots(len(y_cols), len(x_cols), figsize=(20, 10))
         for i, y_col in enumerate(y_cols):
             for j, x_col in enumerate(x_cols):
@@ -374,6 +397,7 @@ if __name__ == "__main__":
                 combined_df_all.loc[non_nan_values].plot.scatter(x_col, y_col, ax=axs[i, j])
                 axs[i, j].plot(X[non_nan_values].reshape(-1, 1), Y_pred, color='red')
                 axs[i, j].title.set_text("$R^2={:.4f}$".format(r_squared))
+        fig.subplots_adjust(hspace=0.3)
         fig.suptitle(replay_results_file[replay_results_file.rfind('/'):])
         plt.show()
                 # plt.figure()
