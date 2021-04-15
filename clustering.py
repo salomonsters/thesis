@@ -282,7 +282,7 @@ class VisualiseClustering:
         left_flat = left.reshape((-1, left.shape[2]))
         right_flat = right.reshape((-1, right.shape[2]))
         ax = self.ax
-        self.airspace_projected.plot(ax=ax, alpha=0.5, edgecolor='k')
+        self.airspace_projected.plot(ax=ax, alpha=0.5, edgecolor='k', facecolor='none')
         ax.set_axis_off()
         colorcycle = cycle(['C2', 'C3'])
         for tracks in [left_flat, right_flat]:
@@ -291,10 +291,11 @@ class VisualiseClustering:
             gs = geopandas.GeoSeries(geopandas.points_from_xy(tracks[:, 0], tracks[:, 1]))
             gs.crs = self.crs
             gs.plot(ax=ax, color=color, markersize=size, linewidth=size)
+        plt.subplots_adjust(left=0, bottom=0, right=1, top=1)
         if self.use_titles:
             ax.set_title(title)
         if self.save_path:
-            self.fig.savefig(self.save_path.format(fname_arg))
+            self.fig.savefig(self.save_path.format(fname_arg), bbox_inches="tight")
             # self.intermediate_result_counter += 1
         if self.show:
             self.fig.show()
@@ -306,7 +307,7 @@ class VisualiseClustering:
         tracks_mean = tracks_concat.mean(axis=0)
         tracks_concat_flat = tracks_concat.reshape((-1, tracks_concat.shape[2]))
         ax = self.ax
-        self.airspace_projected.plot(ax=ax, alpha=0.5, edgecolor='k')
+        self.airspace_projected.plot(ax=ax, alpha=0.5, edgecolor='k', facecolor='none')
 
         ax.set_axis_off()
 
@@ -318,10 +319,11 @@ class VisualiseClustering:
             gs.plot(ax=ax, color=color, markersize=size, linewidth=size)
         # ax.scatter(tracks_mean[:, 0].min() - 1.2 * (tracks_mean[:, 0].max() - tracks_mean[:, 0].min()),
         #            tracks_mean[:, 1].min(), c='C2')
+        plt.subplots_adjust(left=0, bottom=0, right=1, top=1)
         if self.use_titles:
             ax.set_title(title)
         if self.save_path and fname_arg:
-            self.fig.savefig(self.save_path.format(fname_arg))
+            self.fig.savefig(self.save_path.format(fname_arg), bbox_inches="tight")
         if self.show:
             self.fig.show()
         self.ax.clear()
@@ -329,7 +331,7 @@ class VisualiseClustering:
     def plot_means(self, tracks, unclustered, title=None, fname_arg=None):
 
         ax = self.ax
-        self.airspace_projected.plot(ax=ax, alpha=0.5, edgecolor='k')
+        self.airspace_projected.plot(ax=ax, alpha=0.5, edgecolor='k', facecolor='none')
 
         ax.set_axis_off()
         if tracks is not None:
@@ -340,10 +342,11 @@ class VisualiseClustering:
             gs_unclustered = geopandas.GeoSeries(geopandas.points_from_xy(unclustered[:, 0], unclustered[:, 1]))
             gs_unclustered.crs = self.crs
             gs_unclustered.plot(ax=ax, markersize=0.1, linewidth=0.1, color='C1')
+        plt.subplots_adjust(left=0, bottom=0, right=1, top=1)
         if self.use_titles:
             ax.set_title(title)
         if self.save_path and fname_arg:
-            self.fig.savefig(self.save_path.format(fname_arg))
+            self.fig.savefig(self.save_path.format(fname_arg), bbox_inches="tight")
         if self.show:
             self.fig.show()
         self.ax.clear()
@@ -357,11 +360,11 @@ def get_non_diagonal_elements(square_matrix):
 
 def when_everything_within_interval(W_ii, W):
     W_ii = get_non_diagonal_elements(W_ii)
-    # W = get_non_diagonal_elements(W)
+    W = get_non_diagonal_elements(W)
     # if W_ii.shape[0] < 15:
     #     return True
-    # return W.mean() > 0.4 and np.sum(W_ii.min(axis=1) < W.mean() - W.std()) < 2
-    return W_ii.mean() - W_ii.std() > 0.28
+    # return W.mean() > 0.25 and np.sum(W_ii.min(axis=1) < W.mean() - W.std()) < 2
+    return W_ii.mean() > 0.25 and W_ii.std() < 0.25
 
 
 
@@ -377,12 +380,12 @@ if __name__ == "__main__":
         maxalt = 10000
         e_mean = 0.4
         e_var = 1
-        min_cluster_size = 10
+        min_cluster_size = 7
         n_data_points = 200
         fields = ['lat', 'lon']
         K = 8
-        plot_individual_clusters = False
-        use_plot_titles = False
+        plot_individual_clusters = True
+        use_plot_titles = True
         show_plots = False
         # stop_function = lambda X, Y: np.mean(X) > .4
         stop_function = when_everything_within_interval
@@ -417,7 +420,7 @@ if __name__ == "__main__":
 
         x, fid_list, discarded_fids = Clustering.scale_and_average_df_numba_wrapper(df, n_data_points, fields,
                                                                                     alt_conversion=3 * 1852 * 0.3048 / 2)
-
+        n_discarded = len(discarded_fids)
         log("Threw away {0} fid's that had less than {1} rows".format(len(discarded_fids), n_data_points))
 
         visualisation.plot_means(None, x.reshape((-1, x.shape[2])), title='All tracks', fname_arg='00_unclustered')
@@ -457,9 +460,9 @@ if __name__ == "__main__":
                                  title='Cluster means (blue) and unclustered tracks (orange)',
                                  fname_arg='AA_results_and_noise')
         del visualisation
-        with open('data/clustered/eham_stop_mean_std_0.28_{0}.csv'.format("-".join(data_dates)+split_suffix), 'w') as fp:
+        with open('data/clustered/eham_stop_mean_0.25_std_0.25_{0}.csv'.format("-".join(data_dates)+split_suffix), 'w') as fp:
             parameters = {"K": K, "e_mean": e_mean, "e_var": e_var, "n_tracks_clustered": n_clusters,
-                          "n_unclustered": n_noise}
+                          "n_unclustered": n_noise, "n_discarded": n_discarded}
             fp.write(repr(parameters))
             fp.write("\n")
             df.to_csv(fp)
