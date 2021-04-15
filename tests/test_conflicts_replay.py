@@ -30,7 +30,7 @@ def FlowWithOvertakes():
                         'roc': np.ones_like(ts) * vs,
                         'x': x0_0 + ts * gs0 * np.sin(np.radians(trk)) * 1852 / 3600,
                         'y': y0 + ts * gs0 * np.cos(np.radians(trk)) * 1852 / 3600,
-                        'callsign': np.array(len(ts) * ['ac0'])
+                        'fid': np.array(len(ts) * ['ac0'])
                         })
     df1 = pd.DataFrame({'ts': ts,
                         'gs': np.ones_like(ts) * gs1,
@@ -39,7 +39,7 @@ def FlowWithOvertakes():
                         'roc': np.ones_like(ts) * vs,
                         'x': x0_1 + ts * gs1 * np.sin(np.radians(trk)) * 1852 / 3600,
                         'y': y0 + ts * gs1 * np.cos(np.radians(trk)) * 1852 / 3600,
-                        'callsign': np.array(len(ts) * ['ac1'])
+                        'fid': np.array(len(ts) * ['ac1'])
                         })
     df = pd.concat([df0, df1])
     return df
@@ -68,7 +68,7 @@ def OrthogonalFlow():
                         'roc': np.ones_like(ts) * vs,
                         'x': x0 + ts * gs0 * np.sin(np.radians(trk01)) * 1852 / 3600,
                         'y': y0 + ts * gs0 * np.cos(np.radians(trk01)) * 1852 / 3600,
-                        'callsign': np.array(len(ts) * ['ac0'])
+                        'fid': np.array(len(ts) * ['ac0'])
                         })
     df1 = pd.DataFrame({'ts': ts,
                         'gs': np.ones_like(ts) * gs1,
@@ -77,7 +77,7 @@ def OrthogonalFlow():
                         'roc': np.ones_like(ts) * vs,
                         'x': x0 + ts * gs1 * np.sin(np.radians(trk01)) * 1852 / 3600,
                         'y': y0 + ts * gs1 * np.cos(np.radians(trk01)) * 1852 / 3600,
-                        'callsign': np.array(len(ts) * ['ac1'])
+                        'fid': np.array(len(ts) * ['ac1'])
                         })
     df2 = pd.DataFrame({'ts': ts,
                         'gs': np.ones_like(ts) * gs2,
@@ -86,7 +86,7 @@ def OrthogonalFlow():
                         'roc': np.ones_like(ts) * vs,
                         'x': x0 + ts * gs1 * np.sin(np.radians(trk2)) * 1852 / 3600,
                         'y': y0_2 + ts * gs1 * np.cos(np.radians(trk2)) * 1852 / 3600,
-                        'callsign': np.array(len(ts) * ['ac2'])
+                        'fid': np.array(len(ts) * ['ac2'])
                         })
     df3 = pd.DataFrame({'ts': ts,
                         'gs': np.ones_like(ts) * gs2,
@@ -95,7 +95,7 @@ def OrthogonalFlow():
                         'roc': np.ones_like(ts) * vs,
                         'x': x0_3 + ts * gs1 * np.sin(np.radians(trk2)) * 1852 / 3600,
                         'y': y0_3 + ts * gs1 * np.cos(np.radians(trk2)) * 1852 / 3600,
-                        'callsign': np.array(len(ts) * ['ac3'])
+                        'fid': np.array(len(ts) * ['ac3'])
                         })
     df3.loc[15:, 'x'] = 0
     df3.loc[15:, 'y'] += 20 * 1852
@@ -127,7 +127,7 @@ def MultiConflictInFlow():
                         'roc': np.ones_like(ts) * vs,
                         'x': x0 + ts * gs0 * np.sin(np.radians(trk01)) * 1852 / 3600,
                         'y': y0 + ts * gs0 * np.cos(np.radians(trk01)) * 1852 / 3600,
-                        'callsign': np.array(len(ts) * ['ac0'])
+                        'fid': np.array(len(ts) * ['ac0'])
                         })
     df1 = pd.DataFrame({'ts': ts,
                         'gs': np.ones_like(ts) * gs1,
@@ -136,7 +136,7 @@ def MultiConflictInFlow():
                         'roc': np.ones_like(ts) * vs,
                         'x': x0 + ts * gs1 * np.sin(np.radians(trk01)) * 1852 / 3600,
                         'y': y0 + ts * gs1 * np.cos(np.radians(trk01)) * 1852 / 3600,
-                        'callsign': np.array(len(ts) * ['ac1'])
+                        'fid': np.array(len(ts) * ['ac1'])
                         })
     df2 = pd.DataFrame({'ts': ts,
                         'gs': np.ones_like(ts) * gs2,
@@ -145,14 +145,14 @@ def MultiConflictInFlow():
                         'roc': np.ones_like(ts) * vs,
                         'x': x0_2 + ts * gs1 * np.sin(np.radians(trk2)) * 1852 / 3600,
                         'y': y0_2 + ts * gs1 * np.cos(np.radians(trk2)) * 1852 / 3600,
-                        'callsign': np.array(len(ts) * ['ac2'])
+                        'fid': np.array(len(ts) * ['ac2'])
                         })
     df = pd.concat([df0, df1, df2])
     return df
 
 
 def test_conflicts_within_flow(FlowWithOvertakes):
-    flow = ReplayFlow(FlowWithOvertakes, 'callsign', '0')
+    flow = ReplayFlow(FlowWithOvertakes, 'fid', '0')
     flows_dict = OrderedDict({'0': flow})
     flows = CombinedFlows(flows_dict)
     flows_dict_copy = copy.deepcopy(flows_dict)
@@ -179,8 +179,8 @@ def test_conflicts_within_flow(FlowWithOvertakes):
 
 
 def test_conflicts_between_flows(FlowWithOvertakes, OrthogonalFlow):
-    flow0 = ReplayFlow(FlowWithOvertakes, 'callsign', '0')
-    flow1 = ReplayFlow(OrthogonalFlow, 'callsign', '1')
+    flow0 = ReplayFlow(FlowWithOvertakes, 'fid', '0')
+    flow1 = ReplayFlow(OrthogonalFlow, 'fid', '1')
     flows_dict = OrderedDict({'0': flow0, '1': flow1})
     flows = CombinedFlows(flows_dict)
     df_combined = pd.concat([FlowWithOvertakes, OrthogonalFlow])
@@ -214,7 +214,7 @@ def test_conflicts_between_flows(FlowWithOvertakes, OrthogonalFlow):
 
 
 def test_multi_conflict_within_flow(MultiConflictInFlow):
-    flow = ReplayFlow(MultiConflictInFlow, 'callsign', '0')
+    flow = ReplayFlow(MultiConflictInFlow, 'fid', '0')
     flows_dict = OrderedDict({'0': flow})
     flows = CombinedFlows(flows_dict)
     sim = ReplaySimulation(flows, plot_frequency=None, calculate_conflict_per_time_unit=True,

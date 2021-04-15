@@ -1,4 +1,5 @@
 import ast
+import os
 from collections import OrderedDict
 
 import matplotlib.pyplot as plt
@@ -13,12 +14,13 @@ rng = np.random.default_rng()
 
 
 class ReplayFlow(Flow):
-    usable_columns = ('ts', 'alt', 'gs', 'trk', 'x', 'y', 'roc')
+    usable_columns = ('ts', 'alt', 'gs', 'trk', 'x', 'y', 'roc', 'fid')
 
     def __init__(self, df, callsign_col, cluster_name, delete_after=110, time_shift_max=None, activate_based_on_flow_lambda=False):
-        callsigns = df[callsign_col].unique()
+        groupby_callsign = df.groupby(callsign_col)
+        callsigns = df.groupby(callsign_col).size().index
 
-        n = callsigns.shape[0]
+        n = len(callsigns)
         position = np.zeros((n, 2))
         trk = np.zeros(n)
         gs = np.zeros(n)
@@ -31,8 +33,7 @@ class ReplayFlow(Flow):
         self.df = df.loc[:, self.usable_columns]
         self.delete_after = delete_after
         self.time_in_seconds = 0
-        super().__init__(position, trk, gs, alt, vs, callsigns, active, calculate_collisions=False,
-                         other_properties=other_properties)
+
         self.t_activate = np.zeros(n)
         self.t_deactivate = np.zeros(n)
         self.dataframes = []
@@ -46,25 +47,34 @@ class ReplayFlow(Flow):
             self.time_shifts = rng.uniform(0, time_shift_max, n).astype(int)
 
         elif activate_based_on_flow_lambda:
-            df_ts_0 = df.groupby(callsign_col)['ts'].min()
+            df_ts_0 = self.df.groupby(callsign_col)['ts'].min()
             mean_time_between_activations = df_ts_0.sort_values().diff()[1:].mean()
-            activation_times = np.cumsum(rng.exponential(scale=mean_time_between_activations, size=n))
-            rng.shuffle(activation_times)
-            self.activation_times = activation_times
-            new_ts_0 = pd.Series(activation_times, index=callsigns)
+            self.activation_times = np.cumsum(rng.exponential(scale=mean_time_between_activations, size=n))
+            rng.shuffle(self.activation_times)
+
+            new_ts_0 = pd.Series(self.activation_times, index=callsigns)
             self.time_shifts = (new_ts_0 - df_ts_0).to_numpy()
 
-        for i, callsign in enumerate(callsigns):
-            df_callsign = df[df[callsign_col] == callsign]
+        i = 0
+        for callsign, df_callsign in groupby_callsign:
+            assert callsigns[i] == callsign
             if self.time_shifts is not None:
                 df_callsign['ts'] += self.time_shifts[i]
-                assert np.abs(df_callsign['ts'].min() - activation_times[i])<1
+                self.df.loc[df_callsign.index, 'ts'] = df_callsign['ts']
+                # assert np.abs(df_callsign['ts'].min() - self.activation_times[i])<1
 
             self.t_activate[i] = df_callsign['ts'].min()
             self.t_deactivate[i] = df_callsign['ts'].max() + delete_after
             self.dataframes.append(df_callsign)
+            i += 1
+
+
+        super().__init__(position, trk, gs, alt, vs, callsigns, active, calculate_collisions=False,
+                         other_properties=other_properties)
+
         self.already_deactivated = np.zeros_like(self.active)
         self.already_deactivated[:] = False
+        self.callsigns = callsigns
 
     @classmethod
     def expand_properties(cls, *args, **kwargs):
@@ -167,74 +177,98 @@ class ReplaySimulation(Simulation):
 
 if __name__ == "__main__":
     t_lookahead = 10./60
-    conflicts.simulate.S_h = 6
-    conflicts.simulate.S_v = 2000
+    conflicts.simulate.S_h = 3
+    conflicts.simulate.S_v = 1000
     f_simulation = 3600 // 6
     f_plot = None#3600 // 60
     f_conflict = 3600 // 6
     do_calc = True
+    do_plot = False
+    do_save = True
     T = 24  # hrs
     n_splits = 4
     disregard_days = True
+    as_events = True
+    copy_events = None # times
     start_midday = False
     data_date_fmt = '20180101-20180102-20180104-20180105_split_{}'
+    filename_prefix = 'eham_stop_mean_0.25_std_0.25'
     # max_time_shift = 3600 # seconds
     splits_to_consider = list(range(n_splits))
 
+    events_suffix = ""
+    if as_events:
+        events_suffix = "-as-events"
+        if copy_events:
+            events_suffix = "-as-events-repeats-{}".format(copy_events)
+
     from tools import create_logger
     log = create_logger(verbose=True)
-    heatmap_list = []
-    fig, ax = plt.subplots(2, 2)
-    ax = ax.reshape((n_splits,))
+    if do_plot:
+        heatmap_list = []
+        fig, ax = plt.subplots(2, 2)
+        ax = ax.reshape((n_splits,))
     records = []
-    results_fn = 'data/conflict_replay_results/eham_stop_mean_std_0.28_20180101-20180102-20180104-20180105-splits_{}-S_h-{}-S_v-{}-t_l-{:.4f}-as-events.xlsx'.format(
-        repr(splits_to_consider).replace(', ','-'), conflicts.simulate.S_h, conflicts.simulate.S_v, t_lookahead)
+    # results_fn = 'data/conflict_replay_results/eham_stop_mean_std_0.28_20180101-20180102-20180104-20180105-splits_{}-S_h-{}-S_v-{}-t_l-{:.4f}-as-events-repeats-{}.xlsx'.format(repr(splits_to_consider).replace(', ','-'), conflicts.simulate.S_h, conflicts.simulate.S_v, t_lookahead, copy_events)
+    results_fn = 'data/conflict_replay_results/{}_20180101-20180102-20180104-20180105-splits_{}-S_h-{}-S_v-{}-t_l-{:.4f}{}.xlsx'.format(filename_prefix, repr(splits_to_consider).replace(', ','-'), conflicts.simulate.S_h, conflicts.simulate.S_v, t_lookahead, events_suffix)
     for split in splits_to_consider:
 
         log("Starting split {}".format(split))
         data_date = data_date_fmt.format(split)
         callsign_col = 'fid'
 
-        out_fn = 'data/replay_conflicts/eham_stop_mean_std_0.28_{}-fsim-{}-fconflict-{}-S_h-{}-S_v-{}-t_l-{:.4f}-as-events.xlsx'.format(data_date, f_simulation, f_conflict, conflicts.simulate.S_h, conflicts.simulate.S_v, t_lookahead)
+        # out_fn = 'data/replay_conflicts/eham_stop_mean_std_0.28_{}-fsim-{}-fconflict-{}-S_h-{}-S_v-{}-t_l-{:.4f}-as-events-repeats-{}.xlsx'.format(data_date, f_simulation, f_conflict, conflicts.simulate.S_h, conflicts.simulate.S_v, t_lookahead, copy_events)
+        out_fn = 'data/replay_conflicts/{}_{}-fsim-{}-fconflict-{}-S_h-{}-S_v-{}-t_l-{:.4f}{}.xlsx'.format(filename_prefix, data_date, f_simulation, f_conflict, conflicts.simulate.S_h, conflicts.simulate.S_v, t_lookahead, events_suffix)
 
         if do_calc:
-            with open('data/clustered/eham_stop_mean_std_0.28_{0}.csv'.format(data_date), 'r') as fp:
-                parameters = ast.literal_eval(fp.readline())
-                df = pd.read_csv(fp)
-            df = df[~pd.isna(df['trk'])]
-            if start_midday:
-                df.query('ts-{}>12*3600'.format(df['ts'].min()), inplace=True)
-            ts_0 = df['ts'].min()
-            df['ts'] = df['ts'] - ts_0
+            save_events_repeat_file = False
 
-            df['t'] = pd.TimedeltaIndex(df['ts'], unit='s')
-            if disregard_days:
-                df['t'] = df['t'] - df['t'].dt.floor('D')
-                df['ts'] = df['t'].dt.total_seconds()
+            events_repeat_filename = 'data/clustered/{}_{}{}.csv'.format(filename_prefix, data_date, events_suffix)
+            if copy_events and os.path.exists(events_repeat_filename):
+                df = pd.read_csv(events_repeat_filename)
+            else:
+                if copy_events:
+                    save_events_repeat_file = True
+                with open('data/clustered/{}_{}.csv'.format(filename_prefix, data_date), 'r') as fp:
+                    parameters = ast.literal_eval(fp.readline())
+                    df = pd.read_csv(fp)
+                # df = df[~pd.isna(df['trk'])]
+                ts_0 = df['ts'].min()
+                if copy_events:
+                    # df_orig = df.copy(deep=True)
+                    # df[callsign_col] = df[callsign_col] + '_0'
 
-            df.sort_values(by=['cluster', callsign_col, 't'], inplace=True)
+                    df_list = []
+                    for fid, fid_df in df.groupby(callsign_col):
+                        for repeat_i in range(copy_events):
+                            df_list.append(fid_df.assign(**{callsign_col: '{}_{}'.format(fid, repeat_i)}))
+                    df = pd.concat(df_list)
+                    df = df.reset_index(drop=True)#.sort_values(by=[callsign_col, 'ts'])
+                if start_midday:
+                    df.query('ts-{}>12*3600'.format(df['ts'].min()), inplace=True)
+
+                df['ts'] = df['ts'] - ts_0
+
+                df['t'] = pd.TimedeltaIndex(df['ts'], unit='s')
+                if disregard_days:
+                    df['t'] = df['t'] - df['t'].dt.floor('D')
+                    df['ts'] = df['t'].dt.total_seconds()
+
+                df.sort_values(by=['cluster', callsign_col, 't'], inplace=True)
             flows_dict = {}
             for cluster, group in df.groupby('cluster'):
-                flows_dict[cluster] = ReplayFlow(group, callsign_col, cluster, delete_after=50, activate_based_on_flow_lambda=True)
+
+                flows_dict[cluster] = ReplayFlow(group, callsign_col, cluster, delete_after=50, activate_based_on_flow_lambda=as_events)
                 flows_dict[cluster].t_lookahead = t_lookahead
                 if flows_dict[cluster].time_shifts is not None:
-                    callsigns = group[callsign_col].unique()
-                    for i, callsign in enumerate(callsigns):
-                        df.loc[df[callsign_col] == callsign, 'ts'] += flows_dict[cluster].time_shifts[i]
-                        assert np.abs( df.loc[df[callsign_col] == callsign, 'ts'].min() - flows_dict[cluster].activation_times[i]) < 1
-
-                # break
-                # for _ in range(60*24):
-                #     flows_dict[cluster].step(1/60)
-                # for callsign, positions in group.groupby(callsign_col):
-                #     positions.set_index('t')
-                #     positions = positions[~positions.index.duplicated()]
-                #     positions_resampled = positions.set_index('t').resample('min')
-                #
-                # if cluster != -1:
-                #     pass
+                    df.loc[flows_dict[cluster].df.index, 'ts'] = flows_dict[cluster].df['ts']
             flows = CombinedFlows(OrderedDict(flows_dict))
             flows.t_lookahead = t_lookahead
+            if copy_events and save_events_repeat_file:
+                log("Converted df to {} repeats".format(copy_events))
+                df.to_csv(events_repeat_filename, index=False)
+                log('Saved repeated df to {}'.format(events_repeat_filename))
+
 
             sim = ReplaySimulation(flows, plot_frequency=f_plot, calculate_conflict_per_time_unit=False, replay_df=df)
             sim.simulate(f_simulation, conflict_frequency=f_conflict, T=T)
@@ -250,7 +284,7 @@ if __name__ == "__main__":
                 df_conflicts.to_excel(writer, sheet_name='Conflicts')
                 # df2.to_excel(writer, sheet_name='Properties')
             print("Results saved to {}".format(out_fn))
-            df.to_csv('data/clustered/eham_stop_mean_std_0.28_{0}-as-events.csv'.format(data_date))
+
         else:
             df_conflicts = pd.read_excel(out_fn)
         n_cluster = df_conflicts['flow1'].max() + 1  # +1 for unclustered
@@ -276,19 +310,23 @@ if __name__ == "__main__":
                 between_flow_conflicts[i, i] = row['conflicts']
                 records.append({'i': i, 'j': np.nan, 'type': 'within', 'unclustered': i == 0, 'split': split,
                                 'conflicts': row['conflicts']})
-        mask = np.ones_like(between_flow_conflicts)
+        if do_plot:
+            mask = np.ones_like(between_flow_conflicts)
 
-        mask[between_flow_conflicts > 0] = False
-        mask[0,:] = True
-        sns.heatmap(between_flow_conflicts, mask=mask, cmap="flare", ax=ax[split])
+            mask[between_flow_conflicts > 0] = False
+            mask[0,:] = True
+            sns.heatmap(between_flow_conflicts, mask=mask, cmap="flare", ax=ax[split])
 
-        heatmap_list.append(between_flow_conflicts)
-    plt.show()
+            heatmap_list.append(between_flow_conflicts)
     df_results = pd.DataFrame(records)
-    plt.figure()
-    df_results.boxplot(column='conflicts', by=['type', 'unclustered'])
-    plt.show()
-    plt.figure()
-    df_results.query('unclustered == False').boxplot(column='conflicts', by=['split', 'type'])
-    plt.show()
-    df_results.to_excel(results_fn)
+    if do_plot:
+        plt.show()
+
+        plt.figure()
+        df_results.boxplot(column='conflicts', by=['type', 'unclustered'])
+        plt.show()
+        plt.figure()
+        df_results.query('unclustered == False').boxplot(column='conflicts', by=['split', 'type'])
+        plt.show()
+    if do_save:
+        df_results.to_excel(results_fn)
