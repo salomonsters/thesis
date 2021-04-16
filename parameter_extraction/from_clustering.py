@@ -225,11 +225,11 @@ if __name__ == "__main__":
         timeshift_suffix = '-as-events-repeats-5'
         conflicts_x_and_y_lim_for_plot = 80
 
-    replay_results_file = 'data/conflict_replay_results/{}_20180101-20180102-20180104-20180105-splits_[0-1-2-3]-S_h-{}-S_v-{}-t_l-{:.4f}{}.xlsx'.format(filename_prefix, S_h_in_nm, S_v, t_l, timeshift_suffix)
+    replay_results_file = 'data/conflict_replay_results/{}_2018010[1-2-4-5]-S_h-{}-S_v-{}-t_l-{:.4f}{}.xlsx'.format(filename_prefix, S_h_in_nm, S_v, t_l, timeshift_suffix)
     replay_df_all_splits = pd.read_excel(replay_results_file)
     combined_df_list = []
-    for split in range(4):
-        data_date = '20180101-20180102-20180104-20180105_split_{}'.format(split)
+    for split in [1,2,4,5]:
+        data_date = '2018010{}'.format(split)
         replay_results_query = 'split==@split'
         replay_df = replay_df_all_splits.query(replay_results_query)
         # Replay df has (i, nan) for within-cluster conflicts but gdf will have (i, i)
