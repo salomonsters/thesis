@@ -124,7 +124,7 @@ def overlap(left, right):
 
 
     # consecutive_lengths = consecutive_string_lengths(within_S_h & within_S_v)
-
+    return overlap_type(within_S_h & within_S_v)
     #return len(consecutive_lengths)
 
     # return np.sum(within_S_h & within_S_v)
