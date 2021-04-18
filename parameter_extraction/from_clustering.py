@@ -64,10 +64,10 @@ def overlap_type(condition):
     if where_array.shape[0] == 2 and np.all(condition):
         return ('all', None)
     elif where_array[0] == 0 and where_array.shape[0] > 2:# and where_array[2] == n_data_points: # where_array[1] > n_data_points*0.15:
-        return ('begin', None)
+        return ('begin', (0, 0))
     first_loss_of_separation_index = where_array[0]
     assert first_loss_of_separation_index != 0
-    return ('converging', first_loss_of_separation_index)
+    return ('converging', (first_loss_of_separation_index, first_loss_of_separation_index))
 
     # return where_array[0]
     # elif where_array.shape[0] % 2 == 0 and where_array[-2] > n_data_points*0.5 and where_array[-1] == n_data_points:
@@ -98,13 +98,30 @@ def overlap(left, right):
     elif left['cluster'] == 0 or right['cluster'] == 0:
         return ('noise-between', None)
     v_diff = left.mean_alt - right.mean_alt
-    if not np.any(within_S_v := np.abs(v_diff) <= S_v):
-        return ('none', None)
-
     h_distances = np.linalg.norm(left.mean_track - right.mean_track, axis=1)
+    within_S_v = np.abs(v_diff) <= 1.5*S_v
+    within_S_h = h_distances <= 1.5*S_h
 
-    if not np.any(within_S_h := h_distances <= S_h) or not np.any(within_S_h & within_S_v):
-        return 'none'
+    within_S_h_and_S_v = (np.linalg.norm(left.mean_track[:, None] - right.mean_track[None, :], axis=2) < 1*S_h) & (
+                np.abs(left.mean_alt[:, None] - right.mean_alt[None, :]) <= 1*S_v)
+    left_track_predicted = (left.mean_track + (left['other_states'][:, other_states_gs_index] * [np.sin(np.radians(left['other_states'][:, other_states_trk_index])), np.cos(np.radians(left['other_states'][:, other_states_trk_index]))]  * t_l*60).T)
+    right_track_predicted = (right.mean_track + (right['other_states'][:, other_states_gs_index] * [np.sin(np.radians(right['other_states'][:, other_states_trk_index])), np.cos(np.radians(right['other_states'][:, other_states_trk_index]))]  * t_l*60).T)
+
+    within_S_h_and_predicted_within_S_v = (np.linalg.norm(left_track_predicted[:, None] - right_track_predicted[None, :], axis=2) < 1*S_h) &\
+                                          ((left.mean_alt + left['other_states'][:, 2] * t_l*60)[:, None] - (right.mean_alt + right['other_states'][:, 2] * t_l*60)[None, :] <= 1 * S_v)
+    if not np.any(within_S_h & within_S_v):
+
+        if not np.any(within_S_h_and_S_v):
+            if not np.any(within_S_h_and_predicted_within_S_v):
+                return ('none', None)
+            else:
+                if np.any(close := np.array([np.abs(a-b)<5 for a, b in np.argwhere(within_S_h_and_predicted_within_S_v)])):
+                    return ('predicted-converging', np.argwhere(within_S_h_and_predicted_within_S_v)[close].min(axis=0))
+                else:
+                    return ('predicted-dissimilar', None)
+        else:
+            return ('dissimilar', np.argwhere(within_S_h_and_S_v).min(axis=0))
+
     # consecutive_lengths = consecutive_string_lengths(within_S_h & within_S_v)
     return overlap_type(within_S_h & within_S_v)
     #return len(consecutive_lengths)
@@ -133,11 +150,11 @@ def calculate_V_rel_corrected_at(row, at):
     :param at:
     :return:
     """
-    at = int(at)
-    gs_i = row['other_states_i'][at, other_states_gs_index]
-    gs_j = row['other_states_j'][at, other_states_gs_index]
-    trk_i = row['other_states_i'][at, other_states_trk_index]
-    trk_j = row['other_states_j'][at, other_states_trk_index]
+    at_i, at_j = np.array(at).astype(int)
+    gs_i = row['other_states_i'][at_i, other_states_gs_index]
+    gs_j = row['other_states_j'][at_j, other_states_gs_index]
+    trk_i = row['other_states_i'][at_i, other_states_trk_index]
+    trk_j = row['other_states_j'][at_j, other_states_trk_index]
     trk_diff = np.radians(np.abs(trk_i-trk_j))
     mean_time_between_activations_i = row['mean_time_between_activations_i']
     mean_time_between_activations_j = row['mean_time_between_activations_j']
@@ -338,9 +355,10 @@ if __name__ == "__main__":
             # if isinstance(ovl_type, np.ndarray):
             #     shape = ovl_type.shape[0]
             #     if shape <= 2:
-            if not pd.isna(at := combined_df.loc[i]['first_overlap_index']):
+            if not pd.isna(np.any(at := combined_df.loc[i]['first_overlap_index'])):
                     if calculate_V_rel_method == 'closest':
                         at = index_of_closest_point(combined_df.loc[i])
+                        at = (at, at)
                     elif calculate_V_rel_method == 'first':
                         pass
                     else:
@@ -403,13 +421,20 @@ if __name__ == "__main__":
     plt.tight_layout()
     plt.show()
 
-    fig, ax = plt.subplots(figsize=(3,5))
-    x_col = 'conflicts_predicted'
-    y_col = 'conflicts_per_active_hr_based_on_intensity'
-    find_and_plot_correlation(combined_df_all, x_col, y_col, ax, lambda X,Y: (X< conflicts_x_and_y_lim_for_plot) & (Y<conflicts_x_and_y_lim_for_plot))
-    ax.set_xlabel("Predicted conflict rate [1/hr]")
-    ax.set_ylabel("Observed conflict rate [1/hr]")
-    ax.legend(['Replay', 'Trendline'])
+    overlap_plot_i = 0
+    fig, axs = plt.subplots(2, 2, figsize=(6, 10))
+    axs = axs.ravel()
+    for overlap_type_name, overlap_group in combined_df_all.groupby('overlap_type'):
+        if overlap_group['first_overlap_index'].dropna().shape[0] == 0:
+            continue
+        ax = axs[overlap_plot_i]
+        x_col = 'conflicts_predicted'
+        y_col = 'conflicts_per_active_hr_based_on_intensity'
+        find_and_plot_correlation(overlap_group, x_col, y_col, ax, lambda X,Y: (X< conflicts_x_and_y_lim_for_plot) & (Y<conflicts_x_and_y_lim_for_plot) & (0.01 <Y))
+        ax.set_xlabel("Predicted conflict rate [1/hr]")
+        ax.set_ylabel("Observed conflict rate [1/hr]")
+        ax.legend([overlap_type_name, 'Trendline'][::-1])
+        overlap_plot_i += 1
     fig.suptitle('')
     plt.tight_layout()
     plt.show()
