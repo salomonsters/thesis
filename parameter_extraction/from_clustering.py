@@ -98,13 +98,19 @@ def overlap(left, right):
     elif left['cluster'] == 0 or right['cluster'] == 0:
         return ('noise-between', None)
     v_diff = left.mean_alt - right.mean_alt
-    if not np.any(within_S_v := np.abs(v_diff) <= S_v):
-        return ('none', None)
-
     h_distances = np.linalg.norm(left.mean_track - right.mean_track, axis=1)
+    within_S_v = np.abs(v_diff) <= 1.5*S_v
+    within_S_h = h_distances <= 1.5*S_h
 
-    if not np.any(within_S_h := h_distances <= S_h) or not np.any(within_S_h & within_S_v):
-        return 'none'
+    within_S_h_and_S_v = (np.linalg.norm(left.mean_track[:, None] - right.mean_track[None, :], axis=2) < 1.5*S_h) & (
+                np.abs(left.mean_alt[:, None] - right.mean_alt[None, :]) <= 1.5*S_v)
+
+    if not np.any(within_S_h & within_S_v):
+        if not np.any(within_S_h_and_S_v):
+            return ('none', None)
+        else:
+            return ('dissimilar', None)
+
     # consecutive_lengths = consecutive_string_lengths(within_S_h & within_S_v)
     return overlap_type(within_S_h & within_S_v)
     #return len(consecutive_lengths)
@@ -158,12 +164,12 @@ def calculate_V_rel_corrected_at(row, at):
 from sklearn.linear_model import LinearRegression
 
 
-def find_and_plot_correlation(df, x_col, y_col, ax, selector=None):
+def find_and_plot_correlation(df, x_col, y_col, ax, selector=None, use_weighted_least_squares=False):
     # combined_df_all.query('conflicts_predicted<20', inplace=True)
 
     X = df[x_col].values.reshape(-1, 1)
     Y = df[y_col].values.reshape(-1, 1)
-    W = df['track_product'].values.reshape(-1, 1)
+    # W = df['track_product'].values.reshape(-1, 1)
     # if x_col == 'conflicts_predicted_2':
     #     non_nan_values = ~pd.isna(X + Y) & np.isfinite(X + Y) & (Y < 4) & (X < 0.5)
     # else:
@@ -173,10 +179,11 @@ def find_and_plot_correlation(df, x_col, y_col, ax, selector=None):
         non_nan_values = non_nan_values & selector(X,Y)
     linear_regressor = LinearRegression()
     if use_weighted_least_squares:
-        linear_regressor.fit(X[non_nan_values].reshape(-1, 1), Y[non_nan_values].reshape(-1, 1),
-                             sample_weight=W[non_nan_values].ravel())
-        r_squared = linear_regressor.score(X[non_nan_values].reshape(-1, 1), Y[non_nan_values].reshape(-1, 1),
-                                           sample_weight=W[non_nan_values].ravel())
+        raise NotImplementedError()
+        # linear_regressor.fit(X[non_nan_values].reshape(-1, 1), Y[non_nan_values].reshape(-1, 1),
+        #                      sample_weight=W[non_nan_values].ravel())
+        # r_squared = linear_regressor.score(X[non_nan_values].reshape(-1, 1), Y[non_nan_values].reshape(-1, 1),
+        #                                    sample_weight=W[non_nan_values].ravel())
     else:
         linear_regressor.fit(X[non_nan_values].reshape(-1, 1), Y[non_nan_values].reshape(-1, 1))
         r_squared = linear_regressor.score(X[non_nan_values].reshape(-1, 1), Y[non_nan_values].reshape(-1, 1))
@@ -187,13 +194,13 @@ def find_and_plot_correlation(df, x_col, y_col, ax, selector=None):
     ax.title.set_text("$R^2={:.4f}$".format(r_squared))
 
 if __name__ == "__main__":
-    S_h_in_nm = 6
+    S_h_in_nm = 3
     S_h = 1852 * S_h_in_nm
     S_v = 1000
-    t_l = 10./60.
+    t_l = 5./60.
     conflicts_x_and_y_lim_for_plot = 80
     timeshift = None
-    as_events = True
+    as_events = False
     use_weighted_least_squares = False
     calculate_V_rel_method = 'first'  # 'closest' or 'first'
 
@@ -408,7 +415,7 @@ if __name__ == "__main__":
     find_and_plot_correlation(combined_df_all, x_col, y_col, ax, lambda X,Y: (X< conflicts_x_and_y_lim_for_plot) & (Y<conflicts_x_and_y_lim_for_plot))
     ax.set_xlabel("Predicted conflict rate [1/hr]")
     ax.set_ylabel("Observed conflict rate [1/hr]")
-    ax.legend(['Replay', 'Trendline'])
+    ax.legend(['Trendline', 'Replay'])
     fig.suptitle('')
     plt.tight_layout()
     plt.show()
