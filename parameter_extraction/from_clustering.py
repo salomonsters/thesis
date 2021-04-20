@@ -93,8 +93,8 @@ def index_of_closest_point(row):
 def overlap(left, right):
     if left['cluster'] == right['cluster']:
         if left['cluster'] == 0:
-            return ('unclustered-unclustered', None)
-        return ('within-cluster', None)
+            return ('noise-within', None)
+        return ('same', None)
     elif left['cluster'] == 0 or right['cluster'] == 0:
         return ('clustered-unclustered', None)
     v_diff = left.mean_alt - right.mean_alt
