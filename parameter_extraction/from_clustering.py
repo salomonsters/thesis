@@ -62,12 +62,12 @@ def overlap_type(condition):
     where_array = np.where(np.concatenate(([condition[0]],condition[:-1] != condition[1:],[True])))[0]
     assert where_array.shape[0] > 1
     if where_array.shape[0] == 2 and np.all(condition):
-        return ('all', None)
+        return ('all_av', None)
     elif where_array[0] == 0 and where_array.shape[0] > 2:# and where_array[2] == n_data_points: # where_array[1] > n_data_points*0.15:
-        return ('begin', (0, 0))
+        return ('diverging_av', (0, 0))
     first_loss_of_separation_index = where_array[0]
     assert first_loss_of_separation_index != 0
-    return ('converging', (first_loss_of_separation_index, first_loss_of_separation_index))
+    return ('converging_av', (first_loss_of_separation_index, first_loss_of_separation_index))
 
     # return where_array[0]
     # elif where_array.shape[0] % 2 == 0 and where_array[-2] > n_data_points*0.5 and where_array[-1] == n_data_points:
@@ -93,37 +93,38 @@ def index_of_closest_point(row):
 def overlap(left, right):
     if left['cluster'] == right['cluster']:
         if left['cluster'] == 0:
-            return ('noise-within', None)
-        return ('same', None)
+            return ('unclustered-unclustered', None)
+        return ('within-cluster', None)
     elif left['cluster'] == 0 or right['cluster'] == 0:
-        return ('noise-between', None)
+        return ('clustered-unclustered', None)
     v_diff = left.mean_alt - right.mean_alt
     h_distances = np.linalg.norm(left.mean_track - right.mean_track, axis=1)
-    within_S_v = np.abs(v_diff) <= 1.5*S_v
-    within_S_h = h_distances <= 1.5*S_h
+    within_S_h_and_S_v_inner = (np.abs(v_diff) <= 1*S_v) & (h_distances <= 1*S_h)
 
-    within_S_h_and_S_v = (np.linalg.norm(left.mean_track[:, None] - right.mean_track[None, :], axis=2) < 1*S_h) & (
+    within_S_h_and_S_v_outer = (np.linalg.norm(left.mean_track[:, None] - right.mean_track[None, :], axis=2) < 1*S_h) & (
                 np.abs(left.mean_alt[:, None] - right.mean_alt[None, :]) <= 1*S_v)
     left_track_predicted = (left.mean_track + (left['other_states'][:, other_states_gs_index] * [np.sin(np.radians(left['other_states'][:, other_states_trk_index])), np.cos(np.radians(left['other_states'][:, other_states_trk_index]))]  * t_l*60).T)
     right_track_predicted = (right.mean_track + (right['other_states'][:, other_states_gs_index] * [np.sin(np.radians(right['other_states'][:, other_states_trk_index])), np.cos(np.radians(right['other_states'][:, other_states_trk_index]))]  * t_l*60).T)
 
     within_S_h_and_predicted_within_S_v = (np.linalg.norm(left_track_predicted[:, None] - right_track_predicted[None, :], axis=2) < 1*S_h) &\
                                           ((left.mean_alt + left['other_states'][:, 2] * t_l*60)[:, None] - (right.mean_alt + right['other_states'][:, 2] * t_l*60)[None, :] <= 1 * S_v)
-    if not np.any(within_S_h & within_S_v):
-
-        if not np.any(within_S_h_and_S_v):
-            if not np.any(within_S_h_and_predicted_within_S_v):
-                return ('none', None)
-            else:
-                if np.any(close := np.array([np.abs(a-b)<5 for a, b in np.argwhere(within_S_h_and_predicted_within_S_v)])):
-                    return ('predicted-converging', np.argwhere(within_S_h_and_predicted_within_S_v)[close].min(axis=0))
-                else:
-                    return ('predicted-dissimilar', None)
+    if np.any(within_S_h_and_S_v_inner):
+        return overlap_type(within_S_h_and_S_v_inner)
+    elif np.any(within_S_h_and_S_v_outer):
+        return ('cross', (int(np.median(np.unique(np.argwhere(within_S_h_and_S_v_outer)[:, 0]))),
+                int(np.median(np.unique(np.argwhere(within_S_h_and_S_v_outer)[:, 1])))))
+    elif np.any(within_S_h_and_predicted_within_S_v):
+        if np.any(close := np.array([np.abs(a-b)<5 for a, b in np.argwhere(within_S_h_and_predicted_within_S_v)])):
+            return ('converging-lookahead', np.argwhere(within_S_h_and_predicted_within_S_v)[close].min(axis=0))
         else:
-            return ('dissimilar', np.argwhere(within_S_h_and_S_v).min(axis=0))
+            return ('cross', (int(np.median(np.unique(np.argwhere(within_S_h_and_predicted_within_S_v)[:, 0]))),
+                int(np.median(np.unique(np.argwhere(within_S_h_and_predicted_within_S_v)[:, 1])))))
+    else:
+        return ('none', None)
+
 
     # consecutive_lengths = consecutive_string_lengths(within_S_h & within_S_v)
-    return overlap_type(within_S_h & within_S_v)
+
     #return len(consecutive_lengths)
 
     # return np.sum(within_S_h & within_S_v)
@@ -455,3 +456,11 @@ if __name__ == "__main__":
                 # plt.figure()
                 # combined_df_all.plot.scatter('trk_diff', 'conflicts_per_active_hr')
                 # plt.show()
+
+    combined_df_all['has_conflicts'] = combined_df_all['conflicts'].astype(bool);
+    print(combined_df_all.groupby(['overlap_type', 'has_conflicts']).size().unstack().assign(
+        sum=lambda x: np.nansum(x, axis=1))[['sum', True, False]].rename(
+        columns={"sum": "Total No. of flow pairs", True: "With conflicts", False: "Without conflicts"}
+    ).to_latex(float_format="{:g}".format))
+
+
