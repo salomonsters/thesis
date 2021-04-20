@@ -455,3 +455,9 @@ if __name__ == "__main__":
                 # plt.figure()
                 # combined_df_all.plot.scatter('trk_diff', 'conflicts_per_active_hr')
                 # plt.show()
+
+    print(combined_df_all.groupby(['overlap_type', 'has_conflicts']).size().unstack().assign(
+        sum=lambda x: np.nansum(x, axis=1))[['sum', True, False]].rename(
+        columns={"sum": "Total No. of flow pairs", True: "With conflicts", False: "Without conflicts"}
+    ).to_latex(float_format="{:g}".format))
+
