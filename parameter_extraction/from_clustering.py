@@ -93,8 +93,8 @@ def index_of_closest_point(row):
 def overlap(left, right):
     if left['cluster'] == right['cluster']:
         if left['cluster'] == 0:
-            return ('noise-within', None)
-        return ('same', None)
+            return ('unclustered-unclustered', None)
+        return ('within-cluster', None)
     elif left['cluster'] == 0 or right['cluster'] == 0:
         return ('clustered-unclustered', None)
     v_diff = left.mean_alt - right.mean_alt
@@ -200,10 +200,9 @@ def find_and_plot_correlation(df, x_col, y_col, ax, selector=None, trendline=Tru
         r_squared = linear_regressor.score(X[non_nan_values].reshape(-1, 1), Y[non_nan_values].reshape(-1, 1))
     Y_pred = linear_regressor.predict(X[non_nan_values].reshape(-1, 1))
     # plt.figure()
-    df.loc[non_nan_values].plot.scatter(x_col, y_col, ax=ax, **scatter_kwargs)
-    if trendline:
-        ax.plot(X[non_nan_values].reshape(-1, 1), Y_pred, color='red', linestyle='--', **trend_kwargs)
-    return "$R^2={:.4f}$".format(r_squared)
+    df.loc[non_nan_values].plot.scatter(x_col, y_col, ax=ax)
+    ax.plot(X[non_nan_values].reshape(-1, 1), Y_pred, color='red', linestyle='--')
+    ax.title.set_text("$R^2={:.4f}$".format(r_squared))
 
 if __name__ == "__main__":
     S_h_in_nm = 3
