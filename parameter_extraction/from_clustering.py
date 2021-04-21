@@ -200,9 +200,10 @@ def find_and_plot_correlation(df, x_col, y_col, ax, selector=None, trendline=Tru
         r_squared = linear_regressor.score(X[non_nan_values].reshape(-1, 1), Y[non_nan_values].reshape(-1, 1))
     Y_pred = linear_regressor.predict(X[non_nan_values].reshape(-1, 1))
     # plt.figure()
-    df.loc[non_nan_values].plot.scatter(x_col, y_col, ax=ax)
-    ax.plot(X[non_nan_values].reshape(-1, 1), Y_pred, color='red', linestyle='--')
-    ax.title.set_text("$R^2={:.4f}$".format(r_squared))
+    df.loc[non_nan_values].plot.scatter(x_col, y_col, ax=ax, **scatter_kwargs)
+    if trendline:
+        ax.plot(X[non_nan_values].reshape(-1, 1), Y_pred, color='red', linestyle='--', **trend_kwargs)
+    return "$R^2={:.4f}$".format(r_squared)
 
 if __name__ == "__main__":
     S_h_in_nm = 3
@@ -396,8 +397,8 @@ if __name__ == "__main__":
 
     fig, ax = plt.subplots(2, 1)
     ax0_twin = ax[0].twiny()
-    combined_df_all.groupby('overlap_type')['conflicts'].agg(['sum']).plot.barh(ax=ax[0], position=0, color='C0', width=0.4)
-    combined_df_all.groupby('overlap_type')['conflicts'].agg(['count']).plot.barh(ax=ax0_twin, position=1, color='C1', width=0.4)
+    combined_df_all.groupby('overlap_type', sort=False)['conflicts'].agg(['sum']).plot.barh(ax=ax[0], position=0, color='C0', width=0.4)
+    combined_df_all.groupby('overlap_type', sort=False)['conflicts'].agg(['count']).plot.barh(ax=ax0_twin, position=1, color='C1', width=0.4)
     ax[0].set_xlabel("Number of conflicts")
     ax[0].set_ylabel("Overlap type")
 
@@ -423,7 +424,7 @@ if __name__ == "__main__":
     for ext in ['png', 'eps']:
         for overleaf_project_name in ['thesis_full', 'thesis_article']:
             fig.savefig(r"C:/Users/salom/Dropbox/Apps/Overleaf/{}/figures/replay/".format(overleaf_project_name) +
-                        '{}_20180101-20180102-20180104-20180105-splits_[0-1-2-3]-S_h-{}-S_v-{}-t_l-{:.4f}{}.{}'.format(filename_prefix, S_h_in_nm, S_v, t_l, timeshift_suffix, ext))
+                        '{}__2018010[1-2-4-5]-S_h-{}-S_v-{}-t_l-{:.4f}{}.{}'.format(filename_prefix, S_h_in_nm, S_v, t_l, timeshift_suffix, ext))
     plt.show()
 
     overlap_plot_i = 0
@@ -459,7 +460,7 @@ if __name__ == "__main__":
     for ext in ['png', 'eps']:
         for overleaf_project_name in ['thesis_full', 'thesis_article']:
             fig.savefig(r"C:/Users/salom/Dropbox/Apps/Overleaf/{}/figures/replay/".format(overleaf_project_name) +
-                'trend-{}_20180101-20180102-20180104-20180105-splits_[0-1-2-3]-S_h-{}-S_v-{}-t_l-{:.4f}{}.{}'.format(filename_prefix, S_h_in_nm, S_v, t_l, timeshift_suffix, ext))
+                'trend-{}_2018010[1-2-4-5]-S_h-{}-S_v-{}-t_l-{:.4f}{}.{}'.format(filename_prefix, S_h_in_nm, S_v, t_l, timeshift_suffix, ext))
     plt.show()
 
     fig, ax = plt.subplots(1, 1, figsize=(3,5))
@@ -474,7 +475,7 @@ if __name__ == "__main__":
     for ext in ['png', 'eps']:
         for overleaf_project_name in ['thesis_full', 'thesis_article']:
             fig.savefig(r"C:/Users/salom/Dropbox/Apps/Overleaf/{}/figures/replay/".format(overleaf_project_name) +
-                        'trend-converging-{}_20180101-20180102-20180104-20180105-splits_[0-1-2-3]-S_h-{}-S_v-{}-t_l-{:.4f}{}.{}'.format(filename_prefix, S_h_in_nm, S_v, t_l, timeshift_suffix, ext))
+                        'trend-converging-{}_2018010[1-2-4-5]-S_h-{}-S_v-{}-t_l-{:.4f}{}.{}'.format(filename_prefix, S_h_in_nm, S_v, t_l, timeshift_suffix, ext))
     plt.show()
 
 
