@@ -62,12 +62,12 @@ def overlap_type(condition):
     where_array = np.where(np.concatenate(([condition[0]],condition[:-1] != condition[1:],[True])))[0]
     assert where_array.shape[0] > 1
     if where_array.shape[0] == 2 and np.all(condition):
-        return ('all', None)
+        return ('all_av', None)
     elif where_array[0] == 0 and where_array.shape[0] > 2:# and where_array[2] == n_data_points: # where_array[1] > n_data_points*0.15:
-        return ('begin', (0, 0))
+        return ('diverging_av', None)
     first_loss_of_separation_index = where_array[0]
     assert first_loss_of_separation_index != 0
-    return ('converging', (first_loss_of_separation_index, first_loss_of_separation_index))
+    return ('converging_av', (first_loss_of_separation_index, first_loss_of_separation_index))
 
     # return where_array[0]
     # elif where_array.shape[0] % 2 == 0 and where_array[-2] > n_data_points*0.5 and where_array[-1] == n_data_points:
@@ -93,37 +93,38 @@ def index_of_closest_point(row):
 def overlap(left, right):
     if left['cluster'] == right['cluster']:
         if left['cluster'] == 0:
-            return ('noise-within', None)
-        return ('same', None)
+            return ('unclustered-unclustered', None)
+        return ('within-cluster', None)
     elif left['cluster'] == 0 or right['cluster'] == 0:
-        return ('noise-between', None)
+        return ('clustered-unclustered', None)
     v_diff = left.mean_alt - right.mean_alt
     h_distances = np.linalg.norm(left.mean_track - right.mean_track, axis=1)
-    within_S_v = np.abs(v_diff) <= 1.5*S_v
-    within_S_h = h_distances <= 1.5*S_h
+    within_S_h_and_S_v_inner = (np.abs(v_diff) <= 1*S_v) & (h_distances <= 1*S_h)
 
-    within_S_h_and_S_v = (np.linalg.norm(left.mean_track[:, None] - right.mean_track[None, :], axis=2) < 1*S_h) & (
+    within_S_h_and_S_v_outer = (np.linalg.norm(left.mean_track[:, None] - right.mean_track[None, :], axis=2) < 1*S_h) & (
                 np.abs(left.mean_alt[:, None] - right.mean_alt[None, :]) <= 1*S_v)
     left_track_predicted = (left.mean_track + (left['other_states'][:, other_states_gs_index] * [np.sin(np.radians(left['other_states'][:, other_states_trk_index])), np.cos(np.radians(left['other_states'][:, other_states_trk_index]))]  * t_l*60).T)
     right_track_predicted = (right.mean_track + (right['other_states'][:, other_states_gs_index] * [np.sin(np.radians(right['other_states'][:, other_states_trk_index])), np.cos(np.radians(right['other_states'][:, other_states_trk_index]))]  * t_l*60).T)
 
     within_S_h_and_predicted_within_S_v = (np.linalg.norm(left_track_predicted[:, None] - right_track_predicted[None, :], axis=2) < 1*S_h) &\
                                           ((left.mean_alt + left['other_states'][:, 2] * t_l*60)[:, None] - (right.mean_alt + right['other_states'][:, 2] * t_l*60)[None, :] <= 1 * S_v)
-    if not np.any(within_S_h & within_S_v):
-
-        if not np.any(within_S_h_and_S_v):
-            if not np.any(within_S_h_and_predicted_within_S_v):
-                return ('none', None)
-            else:
-                if np.any(close := np.array([np.abs(a-b)<5 for a, b in np.argwhere(within_S_h_and_predicted_within_S_v)])):
-                    return ('predicted-converging', np.argwhere(within_S_h_and_predicted_within_S_v)[close].min(axis=0))
-                else:
-                    return ('predicted-dissimilar', None)
+    if np.any(within_S_h_and_S_v_inner):
+        return overlap_type(within_S_h_and_S_v_inner)
+    elif np.any(within_S_h_and_S_v_outer):
+        return ('cross', (int(np.median(np.unique(np.argwhere(within_S_h_and_S_v_outer)[:, 0]))),
+                int(np.median(np.unique(np.argwhere(within_S_h_and_S_v_outer)[:, 1])))))
+    elif np.any(within_S_h_and_predicted_within_S_v):
+        if np.any(close := np.array([np.abs(a-b)<5 for a, b in np.argwhere(within_S_h_and_predicted_within_S_v)])):
+            return ('converging_la', np.argwhere(within_S_h_and_predicted_within_S_v)[close].min(axis=0))
         else:
-            return ('dissimilar', np.argwhere(within_S_h_and_S_v).min(axis=0))
+            return ('cross_la', (int(np.median(np.unique(np.argwhere(within_S_h_and_predicted_within_S_v)[:, 0]))),
+                int(np.median(np.unique(np.argwhere(within_S_h_and_predicted_within_S_v)[:, 1])))))
+    else:
+        return ('none', None)
+
 
     # consecutive_lengths = consecutive_string_lengths(within_S_h & within_S_v)
-    return overlap_type(within_S_h & within_S_v)
+
     #return len(consecutive_lengths)
 
     # return np.sum(within_S_h & within_S_v)
@@ -175,7 +176,7 @@ def calculate_V_rel_corrected_at(row, at):
 from sklearn.linear_model import LinearRegression
 
 
-def find_and_plot_correlation(df, x_col, y_col, ax, selector=None):
+def find_and_plot_correlation(df, x_col, y_col, ax, selector=None, trendline=True, scatter_kwargs={}, trend_kwargs={}):
     # combined_df_all.query('conflicts_predicted<20', inplace=True)
 
     X = df[x_col].values.reshape(-1, 1)
@@ -199,9 +200,10 @@ def find_and_plot_correlation(df, x_col, y_col, ax, selector=None):
         r_squared = linear_regressor.score(X[non_nan_values].reshape(-1, 1), Y[non_nan_values].reshape(-1, 1))
     Y_pred = linear_regressor.predict(X[non_nan_values].reshape(-1, 1))
     # plt.figure()
-    df.loc[non_nan_values].plot.scatter(x_col, y_col, ax=ax)
-    ax.plot(X[non_nan_values].reshape(-1, 1), Y_pred, color='red', linestyle='--')
-    ax.title.set_text("$R^2={:.4f}$".format(r_squared))
+    df.loc[non_nan_values].plot.scatter(x_col, y_col, ax=ax, **scatter_kwargs)
+    if trendline:
+        ax.plot(X[non_nan_values].reshape(-1, 1), Y_pred, color='red', linestyle='--', **trend_kwargs)
+    return "$R^2={:.4f}$".format(r_squared)
 
 if __name__ == "__main__":
     S_h_in_nm = 3
@@ -419,24 +421,61 @@ if __name__ == "__main__":
     ax[1].set_ylabel("Overlap type")
     fig.suptitle('')
     plt.tight_layout()
+    for ext in ['png', 'eps']:
+        for overleaf_project_name in ['thesis_full', 'thesis_article']:
+            fig.savefig(r"C:/Users/salom/Dropbox/Apps/Overleaf/{}/figures/replay/".format(overleaf_project_name) +
+                        '{}_20180101-20180102-20180104-20180105-splits_[0-1-2-3]-S_h-{}-S_v-{}-t_l-{:.4f}{}.{}'.format(filename_prefix, S_h_in_nm, S_v, t_l, timeshift_suffix, ext))
     plt.show()
 
     overlap_plot_i = 0
-    fig, axs = plt.subplots(2, 2, figsize=(6, 10))
-    axs = axs.ravel()
+    fig, axs = plt.subplots(1, 2, figsize=(6, 5))
+    markers = ('+', '.', '1', '*', 'x')
+    colors = ('C0', 'C1', 'C2', 'C3', 'C4', 'C5')
+    x_col = 'conflicts_predicted'
+    y_col = 'conflicts_per_active_hr_based_on_intensity'
+    combined_df_all['Simulated/analytical'] = combined_df_all[y_col]/combined_df_all[x_col]
+    legends = []
     for overlap_type_name, overlap_group in combined_df_all.groupby('overlap_type'):
         if overlap_group['first_overlap_index'].dropna().shape[0] == 0:
             continue
-        ax = axs[overlap_plot_i]
-        x_col = 'conflicts_predicted'
-        y_col = 'conflicts_per_active_hr_based_on_intensity'
-        find_and_plot_correlation(overlap_group, x_col, y_col, ax, lambda X,Y: (X< conflicts_x_and_y_lim_for_plot) & (Y<conflicts_x_and_y_lim_for_plot) & (0.01 <Y))
-        ax.set_xlabel("Predicted conflict rate [1/hr]")
-        ax.set_ylabel("Observed conflict rate [1/hr]")
-        ax.legend([overlap_type_name, 'Trendline'][::-1])
+
+        find_and_plot_correlation(overlap_group, x_col, y_col, axs[0], lambda X,Y: (X< conflicts_x_and_y_lim_for_plot) & (Y<conflicts_x_and_y_lim_for_plot) #& (0.01 <Y)
+                                  , scatter_kwargs={'marker': markers[overlap_plot_i], 'color': colors[overlap_plot_i]}, trendline=False)
+        legends.append(overlap_type_name)
         overlap_plot_i += 1
+    axs[0].set_xlabel("Analytical conflict rate [1/hr]")
+    axs[0].set_ylabel("Simulated conflict rate [1/hr]")
+    axs[0].plot([0, conflicts_x_and_y_lim_for_plot], [0, conflicts_x_and_y_lim_for_plot], color=colors[overlap_plot_i], linestyle='--')
+    axs[0].legend(['Theoretical'] + legends )
+
+    combined_df_all.query("overlap_type in @legends").boxplot(column='Simulated/analytical', by='overlap_type', ax=axs[1], rot=45)
+    axs[1].set_ylim([0, 3])
+    axs[1].set_title('Ratio per overlap type')
+    axs[1].set_xlabel("")
+    axs[1].set_ylabel("Simulated/Analytical")
+    axs[1].axhline(y=1)
+
     fig.suptitle('')
     plt.tight_layout()
+    for ext in ['png', 'eps']:
+        for overleaf_project_name in ['thesis_full', 'thesis_article']:
+            fig.savefig(r"C:/Users/salom/Dropbox/Apps/Overleaf/{}/figures/replay/".format(overleaf_project_name) +
+                'trend-{}_20180101-20180102-20180104-20180105-splits_[0-1-2-3]-S_h-{}-S_v-{}-t_l-{:.4f}{}.{}'.format(filename_prefix, S_h_in_nm, S_v, t_l, timeshift_suffix, ext))
+    plt.show()
+
+    fig, ax = plt.subplots(1, 1, figsize=(3,5))
+    x_col = 'conflicts_predicted'
+    y_col = 'conflicts_per_active_hr_based_on_intensity'
+    r2 = find_and_plot_correlation(combined_df_all.query('overlap_type=="converging_av"'), x_col, y_col, ax, lambda X,Y: (X< conflicts_x_and_y_lim_for_plot) & (Y<conflicts_x_and_y_lim_for_plot))#& (0.01 <Y))
+    ax.set_xlabel("Predicted conflict rate [1/hr]")
+    ax.set_ylabel("Observed conflict rate [1/hr]")
+    ax.legend(["Observations", 'Trendline ' + r2 ][::-1])
+    fig.suptitle('Converging_av')
+    plt.tight_layout()
+    for ext in ['png', 'eps']:
+        for overleaf_project_name in ['thesis_full', 'thesis_article']:
+            fig.savefig(r"C:/Users/salom/Dropbox/Apps/Overleaf/{}/figures/replay/".format(overleaf_project_name) +
+                        'trend-converging-{}_20180101-20180102-20180104-20180105-splits_[0-1-2-3]-S_h-{}-S_v-{}-t_l-{:.4f}{}.{}'.format(filename_prefix, S_h_in_nm, S_v, t_l, timeshift_suffix, ext))
     plt.show()
 
 
@@ -456,6 +495,7 @@ if __name__ == "__main__":
                 # combined_df_all.plot.scatter('trk_diff', 'conflicts_per_active_hr')
                 # plt.show()
 
+    combined_df_all['has_conflicts'] = combined_df_all['conflicts'].astype(bool)
     print(combined_df_all.groupby(['overlap_type', 'has_conflicts']).size().unstack().assign(
         sum=lambda x: np.nansum(x, axis=1))[['sum', True, False]].rename(
         columns={"sum": "Total No. of flow pairs", True: "With conflicts", False: "Without conflicts"}
