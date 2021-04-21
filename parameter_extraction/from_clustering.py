@@ -397,8 +397,8 @@ if __name__ == "__main__":
 
     fig, ax = plt.subplots(2, 1)
     ax0_twin = ax[0].twiny()
-    combined_df_all.groupby('overlap_type')['conflicts'].agg(['sum']).plot.barh(ax=ax[0], position=0, color='C0', width=0.4)
-    combined_df_all.groupby('overlap_type')['conflicts'].agg(['count']).plot.barh(ax=ax0_twin, position=1, color='C1', width=0.4)
+    combined_df_all.groupby('overlap_type', sort=False)['conflicts'].agg(['sum']).plot.barh(ax=ax[0], position=0, color='C0', width=0.4)
+    combined_df_all.groupby('overlap_type', sort=False)['conflicts'].agg(['count']).plot.barh(ax=ax0_twin, position=1, color='C1', width=0.4)
     ax[0].set_xlabel("Number of conflicts")
     ax[0].set_ylabel("Overlap type")
 
@@ -435,7 +435,7 @@ if __name__ == "__main__":
     y_col = 'conflicts_per_active_hr_based_on_intensity'
     combined_df_all['Simulated/analytical'] = combined_df_all[y_col]/combined_df_all[x_col]
     legends = []
-    for overlap_type_name, overlap_group in combined_df_all.groupby('overlap_type'):
+    for overlap_type_name, overlap_group in combined_df_all.groupby('overlap_type', sort=False):
         if overlap_group['first_overlap_index'].dropna().shape[0] == 0:
             continue
 
