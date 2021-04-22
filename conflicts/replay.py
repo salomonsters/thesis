@@ -138,11 +138,14 @@ class ReplaySimulation(Simulation):
     def plot_in_loop(self):
         plt.clf()
         any_active_flows = False
+        any_active_conflicts = False
         for flow_i, flow in enumerate(self.flows.flow_keys):
             active_conflicts = self.flows.active_conflicts_within_flow_or_between_flows[flow][self.flows[flow].active]
             if active_conflicts.shape[0] == 0:
                 continue
             any_active_flows = True
+            if np.any(active_conflicts):
+                any_active_conflicts = True
             plt.plot(self.flows[flow]['position'][active_conflicts][:, 0],
                      self.flows[flow]['position'][active_conflicts][:, 1], lw=0, marker='o', fillstyle='none',
                      c='C{}'.format(flow_i), markersize=self.lw_conflict)
@@ -151,7 +154,11 @@ class ReplaySimulation(Simulation):
                      c='C{}'.format(flow_i), markersize=self.lw_no_conflict, label=flow)
             for i in range(self.flows[flow].active.shape[0]):
                 if self.flows[flow].active[i]:
-                    plt.annotate("{:.0f}ft".format(self.flows[flow].alt[i]),  # this is the text
+                    try:
+                        annotation = "{:.0f}ft\n{:+6d}ft/min".format(self.flows[flow].alt[i], int(self.flows[flow].vs[i]))
+                    except ValueError:
+                        annotation = "{:.0f}ft\n".format(self.flows[flow].alt[i])
+                    plt.annotate(annotation,
                                  (self.flows[flow].position[i, 0], self.flows[flow].position[i, 1]),
                                  # this is the point to label
                                  textcoords="offset points",  # how to position the text
@@ -161,7 +168,8 @@ class ReplaySimulation(Simulation):
             plt.quiver(self.flows[flow]['position'][:, 0], self.flows[flow]['position'][:, 1],
                        self.flows[flow]['v'][:, 0], self.flows[flow]['v'][:, 1], color='C{}'.format(flow_i),
                        angles='xy', scale_units='xy', scale=1 / Flow.t_lookahead, width=0.001)
-
+        if not any_active_conflicts:
+            return
         plt.xlim(self.xlim)
         plt.ylim(self.ylim)
         if any_active_flows:
@@ -172,15 +180,15 @@ class ReplaySimulation(Simulation):
             # title = int(progress // progress_divider) * '#' +int((1 - progress) // progress_divider )* '_'
             title = f"{self.t=}"
             plt.title(title)
-        plt.pause(0.05)
+        plt.pause(0.001)
 
 
 if __name__ == "__main__":
     t_lookahead = 10./60
     conflicts.simulate.S_h = 3
-    conflicts.simulate.S_v = 1000
+    conflicts.simulate.S_v = 2000
     f_simulation = 3600 // 6
-    f_plot = None#3600 // 60
+    f_plot = None#3600 // 6
     f_conflict = 3600 // 6
     do_calc = True
     do_plot = False
@@ -188,13 +196,14 @@ if __name__ == "__main__":
     T = 24  # hrs
     n_splits = 4
     disregard_days = True
-    as_events = True
+    as_events = False
     copy_events = None # times
-    start_midday = False
+    start_after_x_hours = None
     data_date_fmt = '20180101-20180102-20180104-20180105_split_{}'
     filename_prefix = 'eham_stop_mean_0.25_std_0.25'
     # max_time_shift = 3600 # seconds
-    splits_to_consider = list(range(n_splits))
+    splits_to_consider = list(range(4))#[1,2,4,5]
+    clusters_to_consider = None#[3,34,35,37]
 
     events_suffix = ""
     if as_events:
@@ -233,7 +242,7 @@ if __name__ == "__main__":
                     parameters = ast.literal_eval(fp.readline())
                     df = pd.read_csv(fp)
                 # df = df[~pd.isna(df['trk'])]
-                ts_0 = df['ts'].min()
+
                 if copy_events:
                     # df_orig = df.copy(deep=True)
                     # df[callsign_col] = df[callsign_col] + '_0'
@@ -244,9 +253,9 @@ if __name__ == "__main__":
                             df_list.append(fid_df.assign(**{callsign_col: '{}_{}'.format(fid, repeat_i)}))
                     df = pd.concat(df_list)
                     df = df.reset_index(drop=True)#.sort_values(by=[callsign_col, 'ts'])
-                if start_midday:
-                    df.query('ts-{}>12*3600'.format(df['ts'].min()), inplace=True)
-
+                if start_after_x_hours is not None:
+                    df.query('ts-{}>@start_after_x_hours*3600'.format(df['ts'].min()), inplace=True)
+                ts_0 = df['ts'].min()
                 df['ts'] = df['ts'] - ts_0
 
                 df['t'] = pd.TimedeltaIndex(df['ts'], unit='s')
@@ -257,8 +266,10 @@ if __name__ == "__main__":
                 df.sort_values(by=['cluster', callsign_col, 't'], inplace=True)
             flows_dict = {}
             for cluster, group in df.groupby('cluster'):
+                if clusters_to_consider is not None and cluster not in clusters_to_consider:
+                    continue
 
-                flows_dict[cluster] = ReplayFlow(group, callsign_col, cluster, delete_after=50, activate_based_on_flow_lambda=as_events)
+                flows_dict[cluster] = ReplayFlow(group, callsign_col, cluster, delete_after=10, activate_based_on_flow_lambda=as_events)
                 flows_dict[cluster].t_lookahead = t_lookahead
                 if flows_dict[cluster].time_shifts is not None:
                     df.loc[flows_dict[cluster].df.index, 'ts'] = flows_dict[cluster].df['ts']
