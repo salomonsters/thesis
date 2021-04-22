@@ -371,11 +371,13 @@ def when_everything_within_interval(W_ii, W):
 if __name__ == "__main__":
     verbose = True
     airspace_query = "airport=='EHAM'"
+    # data_dates = ['20180105']#, '20180102', '20180104', '20180105']
     data_dates = ['20180101', '20180102', '20180104', '20180105']
-    for split in range(4):
+    for split in range(1):
         split_suffix = "_split_{}".format(split)
-        # in_filenames = ['data/adsb_decoded_in_eham_combined/ADSB_DECODED_{0}.csv.gz'.format(data_date) for data_date in data_dates]
-        in_filenames = ['data/adsb_decoded_in_eham_combined/{0}{1}.csv.gz'.format("-".join(data_dates), split_suffix)]
+        # split_suffix=""
+        in_filenames = ['data/adsb_decoded_in_eham_combined/ADSB_DECODED_{0}.csv.gz'.format(data_date) for data_date in data_dates]
+        # in_filenames = ['data/adsb_decoded_in_eham/ADSB_DECODED_{0}{1}.csv.gz'.format("-".join(data_dates), split_suffix)]
         minalt = 1800  # ft
         maxalt = 10000
         e_mean = 0.4
