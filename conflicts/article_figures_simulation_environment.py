@@ -1,9 +1,53 @@
 import copy
 from collections import OrderedDict
 
+import matplotlib.pyplot as plt
+
 import numpy as np
 
 from conflicts.simulate import Aircraft, Flow, AircraftInFlow, CombinedFlows, Simulation
+
+class SimulationForArticle(Simulation):
+    def plot_in_loop(self):
+        plt.clf()
+        for flow_i, flow in enumerate(self.flows.flow_keys):
+            active_conflicts = self.flows.active_conflicts_within_flow_or_between_flows[flow][self.flows[flow].active]
+            plt.plot(self.flows[flow]['position'][active_conflicts][:, 0],
+                     self.flows[flow]['position'][active_conflicts][:, 1], lw=0, marker='o', fillstyle='none',
+                     c='C{}'.format(flow_i), markersize=self.lw_conflict)
+            plt.plot(self.flows[flow]['position'][~active_conflicts][:, 0],
+                     self.flows[flow]['position'][~active_conflicts][:, 1], lw=0, marker='o', fillstyle='none',
+                     c='C{}'.format(flow_i), markersize=self.lw_no_conflict, label=flow)
+            plt.quiver(self.flows[flow]['position'][:, 0], self.flows[flow]['position'][:, 1],
+                       self.flows[flow]['v'][:, 0], self.flows[flow]['v'][:, 1], color='C{}'.format(flow_i),
+                       angles='xy', scale_units='xy', scale=1 / Flow.t_lookahead, width=0.001)
+            for i in range(self.flows[flow].active.shape[0]):
+                if self.flows[flow].active[i]:
+                    annotation = flow
+                    plt.annotate(annotation,
+                                 (self.flows[flow].position[i, 0], self.flows[flow].position[i, 1]),
+                                 # this is the point to label
+                                 textcoords="offset points",  # how to position the text
+                                 xytext=(0, 10),  # distance from text to points (x,y)
+                                 ha='left')  # horizontal alignment can be left, right or center
+
+        plt.xlim(self.xlim)
+        plt.ylim(self.ylim)
+        # plt.legend()
+        if self.t > 0:
+            # progress = self.t / self.T
+            # progress_divider = 1/self.lw_conflict
+            # title = int(progress // progress_divider) * '#' +int((1 - progress) // progress_divider )* '_'
+            title = f"{self.t=:.4f}"
+
+            if self.savefig_str:
+                plt.axis('off')
+                plt.gcf().set_size_inches((3.5, 3.5))
+                plt.savefig(self.savefig_str.format(self.t), bbox_inches='tight')
+            else:
+                plt.title(title)
+        plt.pause(0.05)
+
 
 
 def aircraft_on_collision():
@@ -50,7 +94,7 @@ flows['flow1'] = flow1
 flows['flow2'] = flow2
 flows['flow3'] = flow3
 combined_flows = CombinedFlows(copy.deepcopy(flows))
-sim = Simulation(combined_flows, plot_frequency=20,
+sim = SimulationForArticle(combined_flows, plot_frequency=20,
                  savefig_str='pgf/simulation_environment_example-{:.4f}.pgf')
 sim.simulate(20, 0.7, T_conflict_window=[0, 0.2])
 

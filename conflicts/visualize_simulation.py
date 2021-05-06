@@ -130,7 +130,7 @@ def plot_simulation_consistency(input_filenames, plot_options=None):
     r_squared = linear_regressor.score(X[non_nan_values].reshape(-1, 1), Y[non_nan_values].reshape(-1, 1))
 
     # now plot both limits against eachother
-    ax[0].plot(ax0_lims, ax0_lims, 'k--', label="Theoretical", alpha=0.75, zorder=0)
+    ax[0].plot(ax0_lims, ax0_lims, 'k--', label="Theoretical", alpha=0.75, zorder=3)
     ax[0].set_xlim(ax0_xlims)
     ax[0].set_ylim(ax0_ylims)
     anchored_text = matplotlib.offsetbox.AnchoredText("$R^2={:.4f}$".format(r_squared), loc="lower right")
